@@ -1,5 +1,3 @@
 # DMML-Group-3
 
-line added from local.
-
-line added from website
+This is the work space for DMML project.
