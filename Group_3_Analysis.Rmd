@@ -1,0 +1,58 @@
+---
+title: "Group_3_Analysis"
+author: "Group_3"
+date: "2023-03-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#load library
+library(dplyr)
+library(tidyr)
+library(skimr)
+```
+
+## Data Wrangling
+
+```{r Binary output label}
+imdb <- read.csv("https://raw.githubusercontent.com/fanghuaqiu/DMML-Group-3/main/group_3.csv") %>%
+  mutate(ROI = (gross-budget)/budget) %>% #define ROI
+  mutate(scs = ifelse(ROI>=1,1,0)) #define binary labelled output
+
+str(imdb)
+head(imdb)
+sum(imdb$scs) #output should be 291
+skim(imdb)
+```
+
+```{r turn categorical variable to dummy variable}
+#separate genres and plot_keywords
+imdb_g <- imdb[,c("color","language", "country","content_rating","plot_keywords","genres")] %>%
+  separate_wider_delim(genres,"|",names=c("g1","g2","g3","g4","g5","g6","g7","g8"),too_few = "align_start") %>%
+  separate_wider_delim(plot_keywords,"|",names=c("k1","k2","k3","k4","k5"),too_few = "align_start")
+
+skim(imdb_g[,-1:-4])
+head(imdb_g)
+
+#turn categorical variable into dummy variables
+dummies1 <- model.matrix(~color+language+country+content_rating,data=imdb_g)[,-1]
+dummies2 <- model.matrix(~g1+g2+g3+g4+g5+g6+g7+g8+k1+k2+k3+k4+k5,data=imdb_g)
+```
+
+
+```{r Separate training, validation and test sets}
+set.seed(84)
+
+index_test <- sample(1:nrow(imdb), round(0.25*nrow(imdb)))
+index_val <- sample((1:nrow(imdb))[-index_test], round(0.25*nrow(imdb)))
+index_train <- setdiff(1:nrow(imdb),c(index_test,index_val))
+
+
+test_imdb <- imdb[index_test,]
+index_val <- imdb[index_val,]
+train_imdb <- imdb[index_train,]
+```
+
+
