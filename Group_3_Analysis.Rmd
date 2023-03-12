@@ -12,6 +12,11 @@ knitr::opts_chunk$set(echo = TRUE)
 library(dplyr)
 library(tidyr)
 library(skimr)
+library(ggplot2)
+library(MASS)
+library(e1071)
+library(stringr)
+library(fastDummies)
 ```
 
 ## Data Wrangling
@@ -20,43 +25,27 @@ library(skimr)
 imdb <- read.csv("https://raw.githubusercontent.com/fanghuaqiu/DMML-Group-3/main/group_3.csv",na.strings = "") %>%
   mutate(ROI = (gross-budget)/budget) %>% #define ROI
   mutate(scs = ifelse(ROI>=1,1,0)) #define binary labelled output
-?read.csv
-
-str(imdb)
-head(imdb)
-sum(imdb$scs) #output should be 291
-skim(imdb)
 ```
 
 
 ```{r turn categorical variable to dummy variable}
 #separate genres and plot_keywords
-imdb_g <- imdb[,c("color","language", "country","content_rating","plot_keywords","genres")] %>%
+imdb_g <- imdb[,c("duration","num_critic_for_reviews","num_user_for_reviews","num_voted_users","cast_total_facebook_likes","movie_facebook_likes","aspect_ratio","imdb_score","facenumber_in_poster","language","country","content_rating","title_year","color","scs","plot_keywords","genres")] %>%
   separate_wider_delim(genres,"|",names=c("g1","g2","g3","g4","g5","g6","g7","g8"),too_few = "align_start") %>%
   separate_wider_delim(plot_keywords,"|",names=c("k1","k2","k3","k4","k5"),too_few = "align_start")
-  
-skim(imdb_g[,-1:-4])
+##select variables we need
 
-for(j in 10:17){
-  for(i in 1:1000){
-  if(is.na(imdb_g[i,j])){
-  imdb_g[i,j]=0
-}
-}
-}
-
-
-
-
+identical(imdb_g$g8,"NA")
 
 
 #turn categorical variable into dummy variables
-dummies1 <- model.matrix(~color+language+country+content_rating,data=imdb_g)[,-1]
-dummies2 <- model.matrix(~g1+g2+g3+g4+g5+g6+g7+g8+k1+k2+k3+k4+k5,data=imdb_g)[,-1]
-
-
-#bind to imdb
-
+imdb_g = dummy_cols(imdb_g,select_columns = c("g1"))
+imdb_g = imdb_g[,-c(16:28)]
+imdb_g$language = as.factor(imdb_g$language)
+imdb_g$country = as.factor(imdb_g$country)
+imdb_g$content_rating = as.factor(imdb_g$content_rating)
+imdb_g$color = as.factor(imdb_g$color)
+imdb_g$scs = as.factor(imdb_g$scs)
 ```
 
 
@@ -70,9 +59,55 @@ index_test <- same_sample(1:nrow(imdb), round(0.25*nrow(imdb)))
 index_val <- same_sample((1:nrow(imdb))[-index_test], round(0.25*nrow(imdb)))
 index_train <- setdiff(1:nrow(imdb),c(index_test,index_val))
 
-test_imdb <- imdb[index_test,]
-index_val <- imdb[index_val,]
-train_imdb <- imdb[index_train,]
+test_imdb <- imdb_g[index_test,]
+valid_imdb <- imdb_g[index_val,]
+train_imdb <- imdb_g[index_train,]
 ```
 
+```{r SVM}
+Model <- svm(scs~.,data = train_imdb, type="C-classification", kernel="linear")
+summary(Model)
+aa2=predict(Model,valid_imdb)
+table(valid_imdb$scs,aa2)
+length(valid_imdb$scs)
+length(aa2)
+sum(diag(table(valid_imdb$scs,aa2)))/length(aa2)
 
+cost_range <- c(0.01,0.1,1,10,100,150)
+degree_range <- 2:20
+gamma_range <- c(0.001,0.01,0.1,1,10,100)
+
+SVM_poly <- tune.svm(scs~., data=train_imdb, type="C-classification", kernel="polynomial", cost=cost_range, degree=degree_range)
+summary(SVM_poly)
+
+SVM_RBF <- tune.svm(scs~., data=train_imdb, type="C-classification", kernel="radial", cost=cost_range, gamma=gamma_range)
+summary(SVM_RBF)
+
+SVM_linear <- tune.svm(scs~.,data = train_imdb,type="C-classification",kernel="linear",cost = c(0.01,0.1,1,10,100))
+summary(SVM_linear)
+
+
+gamma.opt <- SVM_poly$best.parameters[1]
+cost.opt <- SVM_poly$best.parameters[2]
+SVM_final <- svm(scs~., train_imdb, type="C-classification", kernel="polynomial", gamma=gamma.opt, cost=cost.opt)
+test.pred <- predict(SVM_final,valid_imdb)
+table(valid_imdb$scs,test.pred)
+sum(diag(table(valid_imdb$scs,test.pred)))/length(valid_imdb$scs)
+
+
+gamma.opt <- SVM_RBF$best.parameters[1]
+cost.opt <- SVM_RBF$best.parameters[2]
+SVM_final <- svm(scs~., train_imdb, type="C-classification", kernel="radial", gamma=gamma.opt, cost=cost.opt)
+test.pred <- predict(SVM_final,valid_imdb)
+table(valid_imdb$scs,test.pred)
+sum(diag(table(valid_imdb$scs,test.pred)))/length(valid_imdb$scs)
+
+
+cost.opt <- SVM_linear$best.parameters[1]
+SVM_final <- svm(scs~., train_imdb, type="C-classification", kernel="linear",cost=cost.opt)
+test.pred <- predict(SVM_final,valid_imdb)
+table(valid_imdb$scs,test.pred)
+sum(diag(table(valid_imdb$scs,test.pred)))/length(valid_imdb$scs)
+
+
+```
