@@ -37,6 +37,19 @@ imdb_g <- imdb[,c("color","language", "country","content_rating","plot_keywords"
   
 skim(imdb_g[,-1:-4])
 
+for(j in 10:17){
+  for(i in 1:1000){
+  if(is.na(imdb_g[i,j])){
+  imdb_g[i,j]=0
+}
+}
+}
+
+
+
+
+
+
 #turn categorical variable into dummy variables
 dummies1 <- model.matrix(~color+language+country+content_rating,data=imdb_g)[,-1]
 dummies2 <- model.matrix(~g1+g2+g3+g4+g5+g6+g7+g8+k1+k2+k3+k4+k5,data=imdb_g)[,-1]
