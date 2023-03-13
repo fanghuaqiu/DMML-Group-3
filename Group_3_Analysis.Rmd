@@ -4,46 +4,53 @@ author: "Group_3"
 date: "2023-03-10"
 output: html_document
 ---
+# Aim of Analysis
 
-```{r setup, include=FALSE}
+# Exploratory Analysis
+
+## Data Wrangling
+```{r setup, include=FALSE, message=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
 #load library
 library(dplyr)
 library(tidyr)
 library(skimr)
+library(tidytext)
+library(stringr)
 ```
-
-## Data Wrangling
 
 ```{r Binary output label}
 imdb <- read.csv("https://raw.githubusercontent.com/fanghuaqiu/DMML-Group-3/main/group_3.csv",na.strings = "") %>%
   mutate(ROI = (gross-budget)/budget) %>% #define ROI
-  mutate(scs = ifelse(ROI>=1,1,0)) #define binary labelled output
-?read.csv
-
-str(imdb)
-head(imdb)
-sum(imdb$scs) #output should be 291
-skim(imdb)
+  mutate(scs = ifelse(ROI>=1,1,0)) %>% #define binary labelled output
+  mutate(title_year = as.factor(title_year),
+         aspect_ratio = as.factor((aspect_ratio)),
+         scs = as.factor(scs),
+         content_rating = replace_na(content_rating, "Unknown"),
+         country = str_replace(country," ","_"),
+         content_rating = str_replace(content_rating," ","_"))%>%
+  mutate(content_rating = str_replace(content_rating,"-1","_1"))
 ```
 
 
 ```{r turn categorical variable to dummy variable}
-#separate genres and plot_keywords
-imdb_g <- imdb[,c("color","language", "country","content_rating","plot_keywords","genres")] %>%
-  separate_wider_delim(genres,"|",names=c("g1","g2","g3","g4","g5","g6","g7","g8"),too_few = "align_start") %>%
-  separate_wider_delim(plot_keywords,"|",names=c("k1","k2","k3","k4","k5"),too_few = "align_start")
-  
-skim(imdb_g[,-1:-4])
+#Turn genres into matrix
+imdb_genre <- imdb[,c("movie_title","genres")] %>%
+  mutate(has=1) %>%
+  unnest_tokens(genres_c, genres, to_lower=F) %>%
+  filter(genres_c != "Fi" & genres_c != "Film") %>%
+  group_by(movie_title) %>%
+  spread(genres_c,has,fill=0)
 
 #turn categorical variable into dummy variables
-dummies1 <- model.matrix(~color+language+country+content_rating,data=imdb_g)[,-1]
-dummies2 <- model.matrix(~g1+g2+g3+g4+g5+g6+g7+g8+k1+k2+k3+k4+k5,data=imdb_g)[,-1]
+dummies <- model.matrix(~color+language+country+title_year+aspect_ratio+content_rating,data=imdb)[,-1]
 
+#Combine datasets, need to adjust for standised data
+imdb_dummy <- cbind(imdb,dummies) %>%
+    left_join(imdb_genre, by = "movie_title")
 
-#bind to imdb
-
+skim(imdb_dummy)
 ```
 
 
@@ -57,9 +64,22 @@ index_test <- same_sample(1:nrow(imdb), round(0.25*nrow(imdb)))
 index_val <- same_sample((1:nrow(imdb))[-index_test], round(0.25*nrow(imdb)))
 index_train <- setdiff(1:nrow(imdb),c(index_test,index_val))
 
-test_imdb <- imdb[index_test,]
-index_val <- imdb[index_val,]
-train_imdb <- imdb[index_train,]
+test_imdb <- imdb_dummy[index_test,]
+index_val <- imdb_dummy[index_val,]
+train_imdb <- imdb_dummy[index_train,]
 ```
 
+# Modelling
+
+## KNN
+
+## LDA
+
+## Tree
+
+## SVM
+
+##Neural Network
+
+#Conclusion
 
