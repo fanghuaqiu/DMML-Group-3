@@ -116,7 +116,7 @@ scale_num_var <- scale_imdb(num_var)
 ```
 
 ```{r one hot encoding}
-#separate genres
+#Turn genres into matrix
 imdb_genre <- imdb[,c("movie_title","genres")] %>%
   mutate(has=1) %>%
   unnest_tokens(genres_c, genres, to_lower=F) %>%
@@ -124,10 +124,11 @@ imdb_genre <- imdb[,c("movie_title","genres")] %>%
   group_by(movie_title) %>%
   spread(genres_c,has,fill=0)
 skim(imdb_genre)
+
 #turn categorical variable into dummy variables
 dummies <- model.matrix(~color+language+country+title_year+aspect_ratio+content_rating,data=imdb)[,-1]
 
-#Combine datasets
+#Combine datasets, need to adjust for standised data
 imdb_dummy <- cbind(imdb,dummies) %>%
     left_join(imdb_genre, by = "movie_title")
 skim(imdb_dummy)
@@ -153,7 +154,7 @@ features <- colnames(train_imdb)[c(-1,-3,-5,-7,-9,-16,-18:-26,-29,-30)]
 predictors <- paste(features,collapse="+")
 model_formula <- paste(c("scs~",predictors),collapse="")
 
-model <- neuralnet(model_formula, data = train_imdb, hidden = c(3), err.fct = 'ce', linear.output = FALSE, likelihood = TRUE)
+model <- neuralnet(model_formula, data = train_imdb, hidden = c(1,3), err.fct = 'ce', linear.output = FALSE, likelihood = TRUE)
 
 str(train_imdb)
 plotnet(model)
