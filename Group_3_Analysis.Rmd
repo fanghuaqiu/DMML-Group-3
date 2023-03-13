@@ -12,6 +12,12 @@ knitr::opts_chunk$set(echo = TRUE)
 library(dplyr)
 library(tidyr)
 library(skimr)
+library(tidytext)
+library(stringr)
+
+
+#addTaskCallback(function(...) {set.seed(123);TRUE})
+#removeTaskCallback(1)
 ```
 
 ## Data Wrangling
@@ -19,31 +25,19 @@ library(skimr)
 ```{r Binary output label}
 imdb <- read.csv("https://raw.githubusercontent.com/fanghuaqiu/DMML-Group-3/main/group_3.csv",na.strings = "") %>%
   mutate(ROI = (gross-budget)/budget) %>% #define ROI
-  mutate(scs = ifelse(ROI>=1,1,0)) #define binary labelled output
-?read.csv
+  mutate(scs = ifelse(ROI>=1,1,0)) %>% #define binary labelled output
+  mutate(title_year = as.factor(title_year),
+         aspect_ratio = as.factor((aspect_ratio)),
+         scs = as.factor(scs),
+         content_rating = replace_na(content_rating, "Unknown"),
+         country = str_replace(country," ","_"),
+         content_rating = str_replace(content_rating," ","_"))%>%
+  mutate(content_rating = str_replace(content_rating,"-1","_1"))
+         
 
 str(imdb)
-head(imdb)
-sum(imdb$scs) #output should be 291
+#sum(imdb$scs) #output should be 291
 skim(imdb)
-```
-
-
-```{r turn categorical variable to dummy variable}
-#separate genres and plot_keywords
-imdb_g <- imdb[,c("color","language", "country","content_rating","plot_keywords","genres")] %>%
-  separate_wider_delim(genres,"|",names=c("g1","g2","g3","g4","g5","g6","g7","g8"),too_few = "align_start") %>%
-  separate_wider_delim(plot_keywords,"|",names=c("k1","k2","k3","k4","k5"),too_few = "align_start")
-  
-skim(imdb_g[,-1:-4])
-
-#turn categorical variable into dummy variables
-dummies1 <- model.matrix(~color+language+country+content_rating,data=imdb_g)[,-1]
-dummies2 <- model.matrix(~g1+g2+g3+g4+g5+g6+g7+g8+k1+k2+k3+k4+k5,data=imdb_g)[,-1]
-
-
-#bind to imdb
-
 ```
 
 
@@ -58,8 +52,129 @@ index_val <- same_sample((1:nrow(imdb))[-index_test], round(0.25*nrow(imdb)))
 index_train <- setdiff(1:nrow(imdb),c(index_test,index_val))
 
 test_imdb <- imdb[index_test,]
-index_val <- imdb[index_val,]
+val_imdb <- imdb[index_val,]
 train_imdb <- imdb[index_train,]
 ```
+
+## Neural Network
+```{r library, message=FALSE}
+library(neuralnet)
+library(NeuralNetTools)
+library(ggplot2)
+library(GGally)
+library(knitr)
+library(corrplot)
+```
+
+```{r summary on training}
+skim(train_imdb)
+```
+
+```{r gather numeric variables, message=FALSE, fig.height=5,fig.width=5}
+# Get table of continuous variables
+num_var <- train_imdb[,c(2,4,6,8,10:15,17,27)]
+pairs(num_var, pch=20, lower.panel = NULL)
+```
+
+```{r coorelation, fig.height=5, fig.width=5}
+# Inspect coorelation
+imdb_cor <- round(cor(num_var),2)
+corrplot(cor(num_var), method='number',type='upper')
+```
+
+```{r variance}
+kable(round(diag(var(num_var)),2)) #there are variables with much different SD, so correlation method is used 
+```
+
+```{r pca}
+# Choose Cumulative Proportion over 0.9 
+pca_imdb <- princomp(num_var, cor = TRUE)
+summary(pca_imdb) 
+
+
+plot(pca_imdb$scores)
+outlier <- identify(pca_imdb$scores)
+new_pca_imdb <- pca_imdb <- princomp(num_var[-outlier], cor = TRUE)
+
+
+scores_imdb <- pca_imdb$scores[,1:8]
+pairs(scores_imdb,pch=20, lower.panel = NULL)
+#predict(wine.pca,as.data.frame(new.x))
+
+
+ggpairs(train_imdb[,c(2,4,6,8,10:15,17,27,28,30)],aes(color=as.factor(scs)))
+pairs(train_imdb[,c(2,4,6,8,10:15,17,27,28)])
+```
+
+```{r scaling}
+scale_imdb <- function(table){
+  maxs <- apply(num_var,2,max)
+  mins <- apply(num_var,2,min)
+  sc <- as.data.frame(scale(table, center=mins, scale = maxs-mins))
+}
+scale_num_var <- scale_imdb(num_var)
+```
+
+```{r one hot encoding}
+#separate genres
+imdb_genre <- imdb[,c("movie_title","genres")] %>%
+  mutate(has=1) %>%
+  unnest_tokens(genres_c, genres, to_lower=F) %>%
+  filter(genres_c != "Fi" & genres_c != "Film") %>%
+  group_by(movie_title) %>%
+  spread(genres_c,has,fill=0)
+skim(imdb_genre)
+#turn categorical variable into dummy variables
+dummies <- model.matrix(~color+language+country+title_year+aspect_ratio+content_rating,data=imdb)[,-1]
+
+#Combine datasets
+imdb_dummy <- cbind(imdb,dummies) %>%
+    left_join(imdb_genre, by = "movie_title")
+skim(imdb_dummy)
+#divid sets
+same_sample <- function(x,y){
+  set.seed(84)
+  return(sample(x,y))
+}
+
+index_test <- same_sample(1:nrow(imdb), round(0.25*nrow(imdb)))
+index_val <- same_sample((1:nrow(imdb))[-index_test], round(0.25*nrow(imdb)))
+index_train <- setdiff(1:nrow(imdb),c(index_test,index_val))
+
+test_imdb <- imdb_dummy[index_test,]
+val_imdb <- imdb_dummy[index_val,]
+train_imdb <- imdb_dummy[index_train,]
+
+```
+
+
+```{r nn, message=FALSE, warning=FALSE}
+features <- colnames(train_imdb)[c(-1,-3,-5,-7,-9,-16,-18:-26,-29,-30)]
+predictors <- paste(features,collapse="+")
+model_formula <- paste(c("scs~",predictors),collapse="")
+
+model <- neuralnet(model_formula, data = train_imdb, hidden = c(3), err.fct = 'ce', linear.output = FALSE, likelihood = TRUE)
+
+str(train_imdb)
+plotnet(model)
+
+summary(model)
+
+Credit_train_loss_nn <- model$result.matrix[1,1]
+paste("CE training loss function from neural network:", round(Credit_train_loss_nn,3))
+
+#compare with logit model
+glm <- glm(model_formula, family=binomial, data=train_imdb)
+
+ce_loss <- function(x,y){
+  -(x*log(y)+(1-x)*log(1-y))
+}
+
+glm_loss <- sum(ce_loss(as.numeric(train_imdb$scs), glm$fitted.values))
+paste("CE training loss function from logistic regression:", round(glm_loss,3))
+#paste("CE training loss function from neural network:", round(Credit_train_loss_nn,3))
+#We can compare the training CE loss with logistic regression, The R script for logistic regression is provided in “Credit2.R”
+```
+
 
 
