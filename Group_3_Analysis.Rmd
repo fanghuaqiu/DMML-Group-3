@@ -40,12 +40,18 @@ identical(imdb_g$g8,"NA")
 
 #turn categorical variable into dummy variables
 imdb_g = dummy_cols(imdb_g,select_columns = c("g1"))
-imdb_g = imdb_g[,-c(16:28)]
+imdb_g = imdb_g[,-c(16:20,22:28)]
 imdb_g$language = as.factor(imdb_g$language)
 imdb_g$country = as.factor(imdb_g$country)
 imdb_g$content_rating = as.factor(imdb_g$content_rating)
 imdb_g$color = as.factor(imdb_g$color)
 imdb_g$scs = as.factor(imdb_g$scs)
+imdb_g$k1 = as.factor(imdb_g$k1)
+imdb_g$k2 = as.factor(imdb_g$k2)
+imdb_g$k3 = as.factor(imdb_g$k3)
+imdb_g$k4 = as.factor(imdb_g$k4)
+imdb_g$k5 = as.factor(imdb_g$k5)
+imdb_g$g1 = as.factor(imdb_g$g1)
 ```
 
 
@@ -65,7 +71,7 @@ train_imdb <- imdb_g[index_train,]
 ```
 
 ```{r SVM}
-Model <- svm(scs~.,data = train_imdb, type="C-classification", kernel="linear")
+Model <- svm(scs~.,data = train_imdb, type="C-classification", kernel="linear",cost = 0.1)
 summary(Model)
 aa2=predict(Model,valid_imdb)
 table(valid_imdb$scs,aa2)
@@ -83,7 +89,7 @@ summary(SVM_poly)
 SVM_RBF <- tune.svm(scs~., data=train_imdb, type="C-classification", kernel="radial", cost=cost_range, gamma=gamma_range)
 summary(SVM_RBF)
 
-SVM_linear <- tune.svm(scs~.,data = train_imdb,type="C-classification",kernel="linear",cost = c(0.01,0.1,1,10,100))
+SVM_linear <- tune.svm(scs~.,data = train_imdb,type="C-classification",kernel="linear",cost = cost_range)
 summary(SVM_linear)
 
 
