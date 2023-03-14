@@ -4,54 +4,53 @@ author: "Group_3"
 date: "2023-03-10"
 output: html_document
 ---
+# Aim of Analysis
 
-```{r setup, include=FALSE}
+# Exploratory Analysis
+
+## Data Wrangling
+```{r setup, include=FALSE, message=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
 #load library
 library(dplyr)
 library(tidyr)
 library(skimr)
-library(ggplot2)
-library(MASS)
-library(e1071)
+library(tidytext)
 library(stringr)
-library(fastDummies)
 ```
-
-## Data Wrangling
 
 ```{r Binary output label}
 imdb <- read.csv("https://raw.githubusercontent.com/fanghuaqiu/DMML-Group-3/main/group_3.csv",na.strings = "") %>%
   mutate(ROI = (gross-budget)/budget) %>% #define ROI
-  mutate(scs = ifelse(ROI>=1,1,0)) #define binary labelled output
+  mutate(scs = ifelse(ROI>=1,1,0)) %>% #define binary labelled output
+  mutate(title_year = as.factor(title_year),
+         aspect_ratio = as.factor((aspect_ratio)),
+         scs = as.factor(scs),
+         content_rating = replace_na(content_rating, "Unknown"),
+         country = str_replace(country," ","_"),
+         content_rating = str_replace(content_rating," ","_"))%>%
+  mutate(content_rating = str_replace(content_rating,"-1","_1"))
 ```
 
 
 ```{r turn categorical variable to dummy variable}
-#separate genres and plot_keywords
-imdb_g <- imdb[,c("duration","num_critic_for_reviews","num_user_for_reviews","num_voted_users","cast_total_facebook_likes","movie_facebook_likes","aspect_ratio","imdb_score","facenumber_in_poster","language","country","content_rating","title_year","color","scs","plot_keywords","genres")] %>%
-  separate_wider_delim(genres,"|",names=c("g1","g2","g3","g4","g5","g6","g7","g8"),too_few = "align_start") %>%
-  separate_wider_delim(plot_keywords,"|",names=c("k1","k2","k3","k4","k5"),too_few = "align_start")
-##select variables we need
-
-identical(imdb_g$g8,"NA")
-
+#Turn genres into matrix
+imdb_genre <- imdb[,c("movie_title","genres")] %>%
+  mutate(has=1) %>%
+  unnest_tokens(genres_c, genres, to_lower=F) %>%
+  filter(genres_c != "Fi" & genres_c != "Film") %>%
+  group_by(movie_title) %>%
+  spread(genres_c,has,fill=0)
 
 #turn categorical variable into dummy variables
-imdb_g = dummy_cols(imdb_g,select_columns = c("g1"))
-imdb_g = imdb_g[,-c(16:20,22:28)]
-imdb_g$language = as.factor(imdb_g$language)
-imdb_g$country = as.factor(imdb_g$country)
-imdb_g$content_rating = as.factor(imdb_g$content_rating)
-imdb_g$color = as.factor(imdb_g$color)
-imdb_g$scs = as.factor(imdb_g$scs)
-imdb_g$k1 = as.factor(imdb_g$k1)
-imdb_g$k2 = as.factor(imdb_g$k2)
-imdb_g$k3 = as.factor(imdb_g$k3)
-imdb_g$k4 = as.factor(imdb_g$k4)
-imdb_g$k5 = as.factor(imdb_g$k5)
-imdb_g$g1 = as.factor(imdb_g$g1)
+dummies <- model.matrix(~color+language+country+title_year+aspect_ratio+content_rating,data=imdb)[,-1]
+
+#Combine datasets, need to adjust for standised data
+imdb_dummy <- cbind(imdb,dummies) %>%
+    left_join(imdb_genre, by = "movie_title")
+
+skim(imdb_dummy)
 ```
 
 
@@ -65,11 +64,20 @@ index_test <- same_sample(1:nrow(imdb), round(0.25*nrow(imdb)))
 index_val <- same_sample((1:nrow(imdb))[-index_test], round(0.25*nrow(imdb)))
 index_train <- setdiff(1:nrow(imdb),c(index_test,index_val))
 
-test_imdb <- imdb_g[index_test,]
-valid_imdb <- imdb_g[index_val,]
-train_imdb <- imdb_g[index_train,]
+test_imdb <- imdb_dummy[index_test,]
+vaild_imdb <- imdb_dummy[index_val,]
+train_imdb <- imdb_dummy[index_train,]
 ```
 
+# Modelling
+
+## KNN
+
+## LDA
+
+## Tree
+
+## SVM
 ```{r SVM}
 Model <- svm(scs~.,data = train_imdb, type="C-classification", kernel="linear",cost = 0.1)
 summary(Model)
@@ -117,3 +125,11 @@ sum(diag(table(valid_imdb$scs,test.pred)))/length(valid_imdb$scs)
 
 
 ```
+
+##Neural Network
+
+#Conclusion
+
+```
+
+
