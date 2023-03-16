@@ -1,15 +1,15 @@
 ---
-title: "Group_3_Analysis"
+  title: "Group_3_Analysis"
 author: "Group_3"
 date: "2023-03-10"
 output: html_document
 ---
-# Aim of Analysis
-
-# Exploratory Analysis
-
-## Data Wrangling
-```{r setup, include=FALSE, message=FALSE}
+  # Aim of Analysis
+  
+  # Exploratory Analysis
+  
+  ## Data Wrangling
+  ```{r setup, include=FALSE, message=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
 #load library
@@ -53,7 +53,7 @@ dummies <- model.matrix(~color+language+country+title_year+aspect_ratio+content_
 
 #Combine datasets, need to adjust for standised data
 imdb_dummy <- cbind(imdb,dummies) %>%
-    left_join(imdb_genre, by = "movie_title")
+  left_join(imdb_genre, by = "movie_title")
 
 ```
 
@@ -83,6 +83,19 @@ train_imdb <- imdb_dummy[index_train,]
 
 ## SVM
 ```{r datacleaning for SVM}
+
+## Find out which column with constant
+data_constant <- function(data){
+  a <- c()
+  for(i in 31:ncol(data)){
+    if(sum(data[,i])<5|sum(data[,i]==nrow(data))){
+      a = c(a,i)
+    }
+  }
+  return(a)
+}
+ncol_const <- c(data_constant(train_imdb),data_constant(valid_imdb),data_constant(test_imdb))
+
 ## Delete column with constant and we do not need
 datacleaning <- function(data,ncol_const){
   data = data[,-c(1,3:10,16,17,19,20,25,26,27,29,31:174)]
@@ -92,16 +105,56 @@ datacleaning <- function(data,ncol_const){
 train_imdb = datacleaning(train_imdb)
 valid_imdb = datacleaning(valid_imdb)
 test_imdb = datacleaning(test_imdb)
-```
 
+
+## Turn chr to Factor
+factor <- function(data){
+  data[,"color"] = as.factor(data[,"color"])
+  data[,"aspect_ratio"] = as.factor(data[,"aspect_ratio"])
+  data[,"language"] = as.factor(data[,"language"])
+  data[,"country"] = as.factor(data[,"country"])
+  data[,"scs"] = as.factor(data[,"scs"])
+  return (data)
+}
+#let genres be factor
+data[,14] = as.factor(data[,14])
+data[,15] = as.factor(data[,15])
+data[,16] = as.factor(data[,16])
+data[,17] = as.factor(data[,17])
+data[,18] = as.factor(data[,18])
+data[,19] = as.factor(data[,19])
+data[,20] = as.factor(data[,20])
+data[,21] = as.factor(data[,21])
+data[,22] = as.factor(data[,22])
+data[,23] = as.factor(data[,23])
+data[,24] = as.factor(data[,24])
+data[,25] = as.factor(data[,25])
+data[,26] = as.factor(data[,26])
+data[,27] = as.factor(data[,27])
+data[,28] = as.factor(data[,28])
+data[,29] = as.factor(data[,29])
+data[,30] = as.factor(data[,30])
+data[,31] = as.factor(data[,31])
+data[,32] = as.factor(data[,32])
+data[,33] = as.factor(data[,33])
+data[,34] = as.factor(data[,34])
+data[,35] = as.factor(data[,35])
+data[,"language"] = as.factor(data[,"language"])
+data[,"country"] = as.factor(data[,"country"])
+
+train_imdb = factor(train_imdb)
+valid_imdb = factor(valid_imdb)
+test_imdb = factor(test_imdb)
+
+```
 ```{r standardize}
 ## standardize
 standard_data <- function(data){
   numerical_vars <- sapply(data,is.numeric)
   var.mean <- apply(data[,numerical_vars],2,mean) 
   var.sd   <- apply(data[,numerical_vars],2,sd)
-
-# standardise training and test sets
+  
+  # standardise training and test sets
   data[,numerical_vars] <-t(apply(data[,numerical_vars], 1, function(x) (x-var.mean)/var.sd))
   return(data)
 }
@@ -112,7 +165,7 @@ test_imdb = standard_data(test_imdb)
 ```
 
 ```{r SVM}
-# use for test, delete before final merging
+# use for test, delete before 
 Model <- svm(scs~.,data = train_imdb, type="C-classification", kernel="radial")
 summary(Model)
 aa2=predict(Model,valid_imdb)
@@ -214,5 +267,3 @@ sum(diag(table(test_imdb$scs,predict_final3)))/length(test_imdb$scs)
 #Conclusion
 
 ```
-
-
