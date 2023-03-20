@@ -4,8 +4,12 @@ author: "Group_3"
 date: "2023-03-10"
 output: html_document
 ---
+# Aim of Analysis
 
-```{r setup, include=FALSE}
+# Exploratory Analysis
+
+## Data Wrangling
+```{r setup, include=FALSE, message=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
 #load library
@@ -14,13 +18,7 @@ library(tidyr)
 library(skimr)
 library(tidytext)
 library(stringr)
-
-
-#addTaskCallback(function(...) {set.seed(123);TRUE})
-#removeTaskCallback(1)
 ```
-
-## Data Wrangling
 
 ```{r Binary output label}
 imdb <- read.csv("https://raw.githubusercontent.com/fanghuaqiu/DMML-Group-3/main/group_3.csv",na.strings = "") %>%
@@ -28,16 +26,31 @@ imdb <- read.csv("https://raw.githubusercontent.com/fanghuaqiu/DMML-Group-3/main
   mutate(scs = ifelse(ROI>=1,1,0)) %>% #define binary labelled output
   mutate(title_year = as.factor(title_year),
          aspect_ratio = as.factor((aspect_ratio)),
-         scs = as.factor(scs),
+         #scs = as.factor(scs),
          content_rating = replace_na(content_rating, "Unknown"),
          country = str_replace(country," ","_"),
          content_rating = str_replace(content_rating," ","_"))%>%
   mutate(content_rating = str_replace(content_rating,"-1","_1"))
-         
+```
 
-str(imdb)
-#sum(imdb$scs) #output should be 291
-skim(imdb)
+
+```{r turn categorical variable to dummy variable}
+#Turn genres into matrix
+imdb_genre <- imdb[,c("movie_title","genres")] %>%
+  mutate(has=1) %>%
+  unnest_tokens(genres_c, genres, to_lower=F) %>%
+  filter(genres_c != "Fi" & genres_c != "Film") %>%
+  group_by(movie_title) %>%
+  spread(genres_c,has,fill=0)
+
+#turn categorical variable into dummy variables
+dummies <- model.matrix(~color+language+country+title_year+aspect_ratio+content_rating,data=imdb)[,-1]
+
+#Combine datasets, need to adjust for standised data
+imdb_dummy <- cbind(imdb,dummies) %>%
+    left_join(imdb_genre, by = "movie_title")
+
+#skim(imdb_dummy)
 ```
 
 
@@ -51,13 +64,183 @@ index_test <- same_sample(1:nrow(imdb), round(0.25*nrow(imdb)))
 index_val <- same_sample((1:nrow(imdb))[-index_test], round(0.25*nrow(imdb)))
 index_train <- setdiff(1:nrow(imdb),c(index_test,index_val))
 
-test_imdb <- imdb[index_test,]
-val_imdb <- imdb[index_val,]
-train_imdb <- imdb[index_train,]
+#balanced
+#index_train_1 <- same_sample(which(imdb$scs == '1'), round(0.25*nrow(imdb)))
+#index_train_0 <- same_sample(which(imdb$scs == '0'), round(0.25*nrow(imdb)))
+#index_train <- c(index_train_1,index_train_0)
+#index_val <- same_sample((1:nrow(imdb))[-index_train], round(0.25*nrow(imdb)))
+#index_test <- setdiff(1:nrow(imdb),c(index_val,index_train))
+
+test_imdb <- imdb_dummy[index_test,]
+valid_imdb <- imdb_dummy[index_val,]
+train_imdb <- imdb_dummy[index_train,]
 ```
 
-## Neural Network
-```{r library, message=FALSE}
+# Modelling
+
+## LDA
+
+## Tree
+
+## SVM
+
+## Neural Network on Keras
+
+```{r standardising}
+imdb_mean <- apply(imdb_dummy[,c(2,4,6,8,10:15,17,27,28)],2,mean)
+imdb_sd <- apply(imdb_dummy[,c(2,4,6,8,10:15,17,27,28)],2,sd)
+imdb_dummy[,c(2,4,6,8,10:15,17,27,28)] <- scale(imdb_dummy[,c(2,4,6,8,10:15,17,27,28)], center=imdb_mean, scale = imdb_sd)
+imdb_dummy <- imdb_dummy %>%
+  select(c(-1,-3,-5,-7,-9,-16,-18:-26,-29,-30))
+
+test_imdb <- imdb_dummy[index_test,]
+valid_imdb <- imdb_dummy[index_val,]
+train_imdb <- imdb_dummy[index_train,]
+```
+
+
+```{r setup}
+library(tensorflow)
+library(keras)
+
+train_label <- as.matrix(as.numeric(imdb$scs[index_train]))
+valid_label <- as.matrix(as.numeric(imdb$scs[index_val]))
+test_label <- as.matrix(as.numeric(imdb$scs[index_test]))
+train_matrix <- as.matrix(train_imdb)
+valid_matrix <- as.matrix(valid_imdb)
+test_matrix <- as.matrix(test_imdb)
+```
+
+```{r keras nn}
+# highest lr = 0.1
+lrate <- 0.0001
+lsche <- learning_rate_schedule_exponential_decay(lrate, decay_steps = 1000, decay_rate = 0.7)
+EPOCH <- 1000
+batch <- 25 #mini-batch gradient descent
+optr <- optimizer_adam(learning_rate = lsche)
+init <- initializer_truncated_normal(0, 0.05, 86) # truncated_normal is the recommended initializer for neural work weights and filters in notes
+reg <- regularizer_l2(0.01)
+  
+k_model <- keras_model_sequential()
+k_model %>%
+  layer_dense(units = 64, 
+              activation = 'relu', 
+              kernel_initializer = init, # it is the recommended initializer for neural work weights and filters in notes
+              #kernel_regularizer = reg,
+              input_shape = c(ncol(train_matrix))
+             ) %>%
+  layer_dropout(0.5, seed = 86) %>%
+  layer_batch_normalization() %>%
+
+  layer_dense(units = 32, 
+              activation = 'relu', 
+              kernel_initializer = init
+              #kernel_regularizer = reg
+             ) %>%
+  layer_dropout(0.5, seed = 86)  %>%
+  layer_batch_normalization() %>%
+  
+  layer_dense(units = 1, 
+              activation = 'sigmoid')
+
+k_model %>% 
+  compile(
+    loss = 'binary_crossentropy',
+    optimizer= optr,
+    metrics = list('accuracy')
+)
+
+fix_fit<- function(...){
+  set.seed(86)
+  fit(...)
+}
+
+k_model %>%
+    fix_fit(
+    train_matrix,
+    train_label,
+    epochs = EPOCH, 
+    batch_size = batch,
+    validation_data = list(valid_matrix, valid_label)
+  )
+
+valid_pred <- k_model %>%
+  predict(
+    valid_matrix,
+    batch_size = batch)
+
+k<- table(imdb$scs[index_val], valid_pred>0.5)
+k
+sum(diag(k))/sum(k)
+```
+
+```{r assessment}
+fix_eval <- function(...){
+  set.seed(86)
+  evaluate(...)
+}
+
+k_model %>% 
+  fix_eval(
+    test_matrix,
+    test_label,
+    batch_size = batch
+  )
+
+
+p <- k_model %>%
+  predict(
+    test_matrix,
+    batch_size = batch
+  )
+```
+
+```{r t}
+library(keras); library(tensorflow)
+mnist <- dataset_mnist()
+
+x_train <- mnist$train$x
+y_train <- mnist$train$y
+x_test <- mnist$test$x
+y_test <- mnist$test$y
+dim(x_train)
+x_train <- array_reshape(x_train, c(nrow(x_train), 784))
+x_test <- array_reshape(x_test, c(nrow(x_test), 784))
+# rescale
+x_train <- x_train / 255
+x_test <- x_test / 255
+
+is.matrix(y_train)
+
+y_train <- to_categorical(y_train, 10)
+y_test <- to_categorical(y_test, 10)
+
+model <- keras_model_sequential()
+model %>%
+layer_dense(units = 256, activation = 'relu', input_shape = c(784)) %>%
+layer_dropout(rate = 0.5) %>%
+layer_dense(units = 128, activation = 'relu') %>%
+layer_dropout(rate = 0.4) %>%
+layer_dense(units = 10, activation = 'softmax')
+summary(model)
+
+model %>% compile(
+loss = 'categorical_crossentropy',
+optimizer = optimizer_rmsprop(),
+metrics = c('accuracy')
+)
+
+set.seed(1)
+history <- model %>% fit(
+x_train, y_train,
+epochs = 30, batch_size = 128,
+validation_split = 0.2
+)
+```
+
+
+##Neural Network
+```{r library neural, message=FALSE}
 library(neuralnet)
 library(NeuralNetTools)
 library(ggplot2)
@@ -66,116 +249,348 @@ library(knitr)
 library(corrplot)
 ```
 
-```{r summary on training}
-skim(train_imdb)
-```
-
-```{r gather numeric variables, message=FALSE, fig.height=5,fig.width=5}
-# Get table of continuous variables
-num_var <- train_imdb[,c(2,4,6,8,10:15,17,27)]
-pairs(num_var, pch=20, lower.panel = NULL)
-```
-
-```{r coorelation, fig.height=5, fig.width=5}
-# Inspect coorelation
-imdb_cor <- round(cor(num_var),2)
-corrplot(cor(num_var), method='number',type='upper')
-```
-
-```{r variance}
-kable(round(diag(var(num_var)),2)) #there are variables with much different SD, so correlation method is used 
-```
-
-```{r pca}
-# Choose Cumulative Proportion over 0.9 
-pca_imdb <- princomp(num_var, cor = TRUE)
-summary(pca_imdb) 
 
 
-plot(pca_imdb$scores)
-outlier <- identify(pca_imdb$scores)
-new_pca_imdb <- pca_imdb <- princomp(num_var[-outlier], cor = TRUE)
-
-
-scores_imdb <- pca_imdb$scores[,1:8]
-pairs(scores_imdb,pch=20, lower.panel = NULL)
-#predict(wine.pca,as.data.frame(new.x))
-
-
-ggpairs(train_imdb[,c(2,4,6,8,10:15,17,27,28,30)],aes(color=as.factor(scs)))
-pairs(train_imdb[,c(2,4,6,8,10:15,17,27,28)])
-```
-
-```{r scaling}
-scale_imdb <- function(table){
-  maxs <- apply(num_var,2,max)
-  mins <- apply(num_var,2,min)
-  sc <- as.data.frame(scale(table, center=mins, scale = maxs-mins))
-}
-scale_num_var <- scale_imdb(num_var)
-```
-
-```{r one hot encoding}
-#Turn genres into matrix
-imdb_genre <- imdb[,c("movie_title","genres")] %>%
-  mutate(has=1) %>%
-  unnest_tokens(genres_c, genres, to_lower=F) %>%
-  filter(genres_c != "Fi" & genres_c != "Film") %>%
-  group_by(movie_title) %>%
-  spread(genres_c,has,fill=0)
-skim(imdb_genre)
-
-#turn categorical variable into dummy variables
-dummies <- model.matrix(~color+language+country+title_year+aspect_ratio+content_rating,data=imdb)[,-1]
-
-#Combine datasets, need to adjust for standised data
-imdb_dummy <- cbind(imdb,dummies) %>%
-    left_join(imdb_genre, by = "movie_title")
-skim(imdb_dummy)
-#divid sets
-same_sample <- function(x,y){
-  set.seed(84)
-  return(sample(x,y))
-}
-
-index_test <- same_sample(1:nrow(imdb), round(0.25*nrow(imdb)))
-index_val <- same_sample((1:nrow(imdb))[-index_test], round(0.25*nrow(imdb)))
-index_train <- setdiff(1:nrow(imdb),c(index_test,index_val))
+```{r standardising}
+maxs <- apply(imdb_dummy[,c(2,4,6,8,10:15,17,27,28)],2,max)
+mins <- apply(imdb_dummy[,c(2,4,6,8,10:15,17,27,28)],2,min)
+imdb_dummy[,c(2,4,6,8,10:15,17,27,28)] <- scale(imdb_dummy[,c(2,4,6,8,10:15,17,27,28)], center=mins, scale = maxs-mins)
+imdb_dummy <- imdb_dummy %>%
+  select(c(-1,-3,-5,-7,-9,-16,-18:-26,-29,-30))
 
 test_imdb <- imdb_dummy[index_test,]
-val_imdb <- imdb_dummy[index_val,]
+valid_imdb <- imdb_dummy[index_val,]
 train_imdb <- imdb_dummy[index_train,]
-
 ```
-
 
 ```{r nn, message=FALSE, warning=FALSE}
-features <- colnames(train_imdb)[c(-1,-3,-5,-7,-9,-16,-18:-26,-29,-30)]
+features <- colnames(train_imdb)
 predictors <- paste(features,collapse="+")
-model_formula <- paste(c("scs~",predictors),collapse="")
+model_formula <- paste(c("imdb$scs[index_train]~",predictors),collapse="")
 
-model <- neuralnet(model_formula, data = train_imdb, hidden = c(1,3), err.fct = 'ce', linear.output = FALSE, likelihood = TRUE)
-
-str(train_imdb)
-plotnet(model)
-
-summary(model)
-
-Credit_train_loss_nn <- model$result.matrix[1,1]
-paste("CE training loss function from neural network:", round(Credit_train_loss_nn,3))
-
-#compare with logit model
-glm <- glm(model_formula, family=binomial, data=train_imdb)
-
-ce_loss <- function(x,y){
-  -(x*log(y)+(1-x)*log(1-y))
+fix_neuralnet <- function(...){
+  set.seed(84)
+  neuralnet(...)
 }
 
-glm_loss <- sum(ce_loss(as.numeric(train_imdb$scs), glm$fitted.values))
-paste("CE training loss function from logistic regression:", round(glm_loss,3))
-#paste("CE training loss function from neural network:", round(Credit_train_loss_nn,3))
-#We can compare the training CE loss with logistic regression, The R script for logistic regression is provided in “Credit2.R”
+nn_model_1 <- fix_neuralnet(model_formula, 
+                        data = train_imdb, 
+                        hidden = c(10), 
+                        err.fct = 'ce', 
+                        linear.output = FALSE, 
+                        likelihood = TRUE,
+                        rep = 10
+                        )
+
+nn_model_2 <- fix_neuralnet(model_formula, 
+                        data = train_imdb, 
+                        hidden = c(5,8), 
+                        err.fct = 'ce', 
+                        linear.output = FALSE, 
+                        likelihood = TRUE,
+                        rep = 10
+                        )
+
+nn_model_3 <- fix_neuralnet(model_formula, 
+                        data = train_imdb, 
+                        hidden = c(10,20), 
+                        err.fct = 'ce', 
+                        linear.output = FALSE, 
+                        likelihood = TRUE,
+                        rep = 10)
+
+nn_model_4 <- fix_neuralnet(model_formula, 
+                        data = train_imdb, 
+                        hidden = c(7,12,18), 
+                        err.fct = 'ce', 
+                        linear.output = FALSE, 
+                        likelihood = TRUE,
+                        rep = 10)
+
+nn_model_5 <- fix_neuralnet(model_formula, 
+                        data = train_imdb, 
+                        hidden = c(22,36,52), 
+                        err.fct = 'ce', 
+                        linear.output = FALSE, 
+                        likelihood = TRUE,
+                        rep = 10)
+```
+
+```{r find best rep}
+find.bestr <- function (model){
+  return(c(which.min(model$result.matrix[1,]),
+           which.min(model$result.matrix[4,]),
+           which.min(model$result.matrix[5,])))
+}
+
+find.best(nn_model_1)
+best_1 <- find.best(nn_model_1)[1]
+
+find.best(nn_model_2)
+best_2 <- find.best(nn_model_2)[1]
+
+find.best(nn_model_3)
+best_3 <- find.best(nn_model_3)[1]
+
+find.best(nn_model_4)
+best_4 <- find.best(nn_model_4)[1]
+
+find.best(nn_model_5)
+best_5 <- find.best(nn_model_5)[1]
+```
+
+```{r AICBIC}
+criterias <- tibble('model' = rep(c("nn_model_1","nn_model_2", "nn_model_3",
+                                         "nn_model_4","nn_model_5"), each = 2),
+                    'criteria' = rep(c('AIC', 'BIC'), length.out=10),
+                    'value' = c(
+                                  nn_model_1$result.matrix[4,best_1],
+                                  nn_model_1$result.matrix[5,best_1],
+                                  nn_model_2$result.matrix[4,best_2],
+                                  nn_model_2$result.matrix[5,best_2],
+                                  nn_model_3$result.matrix[4,best_3],
+                                  nn_model_3$result.matrix[5,best_3],
+                                  nn_model_4$result.matrix[4,best_4],
+                                  nn_model_4$result.matrix[5,best_4],
+                                  nn_model_5$result.matrix[4,best_5],
+                                  nn_model_5$result.matrix[5,best_5]))
+
+ggplot(criterias, aes(model, value, fill = criteria)) +
+  geom_col(position = "dodge")
+```
+
+```{r ce}
+ce <- tibble('model' = c("nn_model_1","nn_model_2", "nn_model_3","nn_model_4","nn_model_5"),
+                      'ce' = c(nn_model_1$result.matrix[1,best_1],
+                                  nn_model_2$result.matrix[1,best_2],
+                                  nn_model_3$result.matrix[1,best_3],
+                                  nn_model_4$result.matrix[1,best_4],
+                                  nn_model_5$result.matrix[1,best_5]))
+
+ggplot(ce, aes(model, ce)) +
+  geom_col(position = "dodge")
+```
+
+```{r best model on training}
+for (i in c(1,4,5)){
+     print(which.min(
+        c(nn_model_1$result.matrix[i,best_1],
+           nn_model_2$result.matrix[i,best_2],
+           nn_model_3$result.matrix[i,best_3],
+           nn_model_4$result.matrix[i,best_4],
+           nn_model_5$result.matrix[i,best_5])))
+}
+```
+```{r validation}
+ce <- function(a,b){
+  -(a*log(b)+(1-a)*log(1-b))
+}
+
+nn_trian_1 <- predict(nn_model_1, train_imdb, rep=best_1)
+nn_train_1_p <- table(imdb$scs[index_train], nn_trian_1>0.5)
+
+nn_valid_1 <- predict(nn_model_1, valid_imdb, rep=best_1)
+nn_valid_1_p <- table(imdb$scs[index_val], nn_valid_1>0.5)
+nn_valid_1_accuracy <- sum(diag(nn_valid_1_p))/sum(nn_valid_1_p)
+nn_valid_1_ce <- sum(ce(imdb$scs[index_val],nn_valid_1))
+
+nn_valid_2 <- predict(nn_model_2, valid_imdb, rep=best_2)
+nn_valid_2_p <- table(imdb$scs[index_val], nn_valid_2>0.5)
+nn_valid_2_accuracy <- sum(diag(nn_valid_2_p))/sum(nn_valid_2_p)
+nn_valid_2_ce <- sum(ce(imdb$scs[index_val],nn_valid_2))
+
+nn_valid_3 <- predict(nn_model_3, valid_imdb, rep=best_3)
+nn_valid_3_p <- table(imdb$scs[index_val], nn_valid_3>0.5)
+nn_valid_3_accuracy <- sum(diag(nn_valid_3_p))/sum(nn_valid_3_p)
+nn_valid_3_ce <- sum(ce(imdb$scs[index_val],nn_valid_3))
+
+nn_valid_4 <- predict(nn_model_4, valid_imdb, rep=best_4)
+nn_valid_4_p <- table(imdb$scs[index_val], nn_valid_4>0.5)
+nn_valid_4_accuracy <- sum(diag(nn_valid_4_p))/sum(nn_valid_4_p)
+nn_valid_4_ce <- sum(ce(imdb$scs[index_val],nn_valid_4))
+
+nn_valid_5 <- predict(nn_model_5, valid_imdb, rep=best_5)
+nn_valid_5_p <- table(imdb$scs[index_val], nn_valid_5>0.5)
+nn_valid_5_accuracy <- sum(diag(nn_valid_5_p))/sum(nn_valid_5_p)
+nn_valid_5_ce <- sum(ce(imdb$scs[index_val],nn_valid_5))
+
+valid <- tibble("model" = c("nn_valid_1","nn_valid_2","nn_valid_3","nn_valid_4","nn_valid_5"),
+       "accuracy" = c(nn_valid_1_accuracy, nn_valid_2_accuracy, nn_valid_3_accuracy, nn_valid_4_accuracy, nn_valid_5_accuracy),
+       "ce_loss" = c(nn_valid_1_ce, nn_valid_2_ce, nn_valid_3_ce, nn_valid_4_ce, nn_valid_5_ce))
+
+ggplot(accuracy, aes(model, accuracy)) +
+  geom_col()
+
+ggplot(accuracy, aes(model, ce_loss)) +
+  geom_col()
+
+```
+
+```{r nn lr0.01, message=FALSE, warning=FALSE}
+features <- colnames(train_imdb)
+predictors <- paste(features,collapse="+")
+model_formula <- paste(c("imdb$scs[index_train]~",predictors),collapse="")
+
+fix_neuralnet <- function(...){
+  set.seed(84)
+  neuralnet(...)
+}
+set.seed(86)
+nn_model_1 <- fix_neuralnet(model_formula, 
+                        data = train_imdb, 
+                        hidden = c(10), 
+                        err.fct = 'ce', 
+                        linear.output = FALSE, 
+                        likelihood = TRUE,
+                        rep = 10,
+                        learningrate = 0.001
+                        )
+
+nn_model_2 <- fix_neuralnet(model_formula, 
+                        data = train_imdb, 
+                        hidden = c(5,8), 
+                        err.fct = 'ce', 
+                        linear.output = FALSE, 
+                        likelihood = TRUE,
+                        rep = 10
+                        )
+
+nn_model_3 <- fix_neuralnet(model_formula, 
+                        data = train_imdb, 
+                        hidden = c(10,20), 
+                        err.fct = 'ce', 
+                        linear.output = FALSE, 
+                        likelihood = TRUE,
+                        rep = 10)
+
+nn_model_4 <- fix_neuralnet(model_formula, 
+                        data = train_imdb, 
+                        hidden = c(7,12,18), 
+                        err.fct = 'ce', 
+                        linear.output = FALSE, 
+                        likelihood = TRUE,
+                        rep = 10)
+
+nn_model_5 <- fix_neuralnet(model_formula, 
+                        data = train_imdb, 
+                        hidden = c(22,36,52), 
+                        err.fct = 'ce', 
+                        linear.output = FALSE, 
+                        likelihood = TRUE,
+                        rep = 10)
+```
+
+```{r find best rep}
+find.bestr <- function (model){
+  return(c(which.min(model$result.matrix[1,]),
+           which.min(model$result.matrix[4,]),
+           which.min(model$result.matrix[5,])))
+}
+
+find.best(nn_model_1)
+best_1 <- find.best(nn_model_1)[1]
+
+find.best(nn_model_2)
+best_2 <- find.best(nn_model_2)[1]
+
+find.best(nn_model_3)
+best_3 <- find.best(nn_model_3)[1]
+
+find.best(nn_model_4)
+best_4 <- find.best(nn_model_4)[1]
+
+find.best(nn_model_5)
+best_5 <- find.best(nn_model_5)[1]
+```
+
+```{r AICBIC}
+criterias <- tibble('model' = rep(c("nn_model_1","nn_model_2", "nn_model_3",
+                                         "nn_model_4","nn_model_5"), each = 2),
+                    'criteria' = rep(c('AIC', 'BIC'), length.out=10),
+                    'value' = c(
+                                  nn_model_1$result.matrix[4,best_1],
+                                  nn_model_1$result.matrix[5,best_1],
+                                  nn_model_2$result.matrix[4,best_2],
+                                  nn_model_2$result.matrix[5,best_2],
+                                  nn_model_3$result.matrix[4,best_3],
+                                  nn_model_3$result.matrix[5,best_3],
+                                  nn_model_4$result.matrix[4,best_4],
+                                  nn_model_4$result.matrix[5,best_4],
+                                  nn_model_5$result.matrix[4,best_5],
+                                  nn_model_5$result.matrix[5,best_5]))
+
+ggplot(criterias, aes(model, value, fill = criteria)) +
+  geom_col(position = "dodge")
+```
+
+```{r ce}
+ce <- tibble('model' = c("nn_model_1","nn_model_2", "nn_model_3","nn_model_4","nn_model_5"),
+                      'ce' = c(nn_model_1$result.matrix[1,best_1],
+                                  nn_model_2$result.matrix[1,best_2],
+                                  nn_model_3$result.matrix[1,best_3],
+                                  nn_model_4$result.matrix[1,best_4],
+                                  nn_model_5$result.matrix[1,best_5]))
+
+ggplot(ce, aes(model, ce)) +
+  geom_col(position = "dodge")
+```
+
+```{r best model on training}
+for (i in c(1,4,5)){
+     print(which.min(
+        c(nn_model_1$result.matrix[i,best_1],
+           nn_model_2$result.matrix[i,best_2],
+           nn_model_3$result.matrix[i,best_3],
+           nn_model_4$result.matrix[i,best_4],
+           nn_model_5$result.matrix[i,best_5])))
+}
+```
+```{r validation}
+ce <- function(a,b){
+  -(a*log(b)+(1-a)*log(1-b))
+}
+
+nn_trian_1 <- predict(nn_model_1, train_imdb, rep=best_1)
+nn_train_1_p <- table(imdb$scs[index_train], nn_trian_1>0.5)
+
+nn_valid_1 <- predict(nn_model_1, valid_imdb, rep=best_1)
+nn_valid_1_p <- table(imdb$scs[index_val], nn_valid_1>0.5)
+nn_valid_1_accuracy <- sum(diag(nn_valid_1_p))/sum(nn_valid_1_p)
+nn_valid_1_ce <- sum(ce(imdb$scs[index_val],nn_valid_1))
+
+nn_valid_2 <- predict(nn_model_2, valid_imdb, rep=best_2)
+nn_valid_2_p <- table(imdb$scs[index_val], nn_valid_2>0.5)
+nn_valid_2_accuracy <- sum(diag(nn_valid_2_p))/sum(nn_valid_2_p)
+nn_valid_2_ce <- sum(ce(imdb$scs[index_val],nn_valid_2))
+
+nn_valid_3 <- predict(nn_model_3, valid_imdb, rep=best_3)
+nn_valid_3_p <- table(imdb$scs[index_val], nn_valid_3>0.5)
+nn_valid_3_accuracy <- sum(diag(nn_valid_3_p))/sum(nn_valid_3_p)
+nn_valid_3_ce <- sum(ce(imdb$scs[index_val],nn_valid_3))
+
+nn_valid_4 <- predict(nn_model_4, valid_imdb, rep=best_4)
+nn_valid_4_p <- table(imdb$scs[index_val], nn_valid_4>0.5)
+nn_valid_4_accuracy <- sum(diag(nn_valid_4_p))/sum(nn_valid_4_p)
+nn_valid_4_ce <- sum(ce(imdb$scs[index_val],nn_valid_4))
+
+nn_valid_5 <- predict(nn_model_5, valid_imdb, rep=best_5)
+nn_valid_5_p <- table(imdb$scs[index_val], nn_valid_5>0.5)
+nn_valid_5_accuracy <- sum(diag(nn_valid_5_p))/sum(nn_valid_5_p)
+nn_valid_5_ce <- sum(ce(imdb$scs[index_val],nn_valid_5))
+
+sum(imdb$scs[index_val])/250
+
+valid <- tibble("model" = c("nn_valid_1","nn_valid_2","nn_valid_3","nn_valid_4","nn_valid_5"),
+       "accuracy" = c(nn_valid_1_accuracy, nn_valid_2_accuracy, nn_valid_3_accuracy, nn_valid_4_accuracy, nn_valid_5_accuracy),
+       "ce_loss" = c(nn_valid_1_ce, nn_valid_2_ce, nn_valid_3_ce, nn_valid_4_ce, nn_valid_5_ce))
+
+ggplot(accuracy, aes(model, accuracy)) +
+  geom_col()
+
+ggplot(accuracy, aes(model, ce_loss)) +
+  geom_col()
 ```
 
 
+#Conclusion
 
