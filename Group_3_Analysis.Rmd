@@ -64,10 +64,40 @@ index_test <- same_sample(1:nrow(imdb), round(0.25*nrow(imdb)))
 index_val <- same_sample((1:nrow(imdb))[-index_test], round(0.25*nrow(imdb)))
 index_train <- setdiff(1:nrow(imdb),c(index_test,index_val))
 
+index_train_t <- same_sample(setdiff(1:nrow(imdb),c(index_test,index_val)), round(0.25*nrow(imdb)))
+
 test_imdb <- imdb_dummy[index_test,]
 index_val <- imdb_dummy[index_val,]
 train_imdb <- imdb_dummy[index_train,]
+# training set for tree model
+train_imdb_t <- imdb_dummy[index_train_t,]
 ```
+
+```{r balanced sets}
+same_sample <- function(x,y){
+  set.seed(84)
+  return(sample(x,y))
+}
+
+# balanced
+index_train_1 <- same_sample(which(imdb$scs == '1'), round(0.25*nrow(imdb)))
+index_train_0 <- same_sample(which(imdb$scs == '0'), round(0.25*nrow(imdb)))
+index_train_b <- c(index_train_1,index_train_0)
+index_val_b <- same_sample((1:nrow(imdb))[-index_train], round(0.25*nrow(imdb)))
+index_test_b <- setdiff(1:nrow(imdb),c(index_val,index_train))
+
+test_imdb_b <- imdb_dummy[index_test_b,]
+index_val_b <- imdb_dummy[index_val_b,]
+train_imdb_b <- imdb_dummy[index_train_b,]
+
+index_train_t_1 <- same_sample(which(train_imdb_b$scs == '1'), round(0.25*nrow(train_imdb_b)))
+index_train_t_0 <- same_sample(which(train_imdb_b$scs == '0'), round(0.25*nrow(train_imdb_b)))
+index_train_b_t <- c(index_train_t_1,index_train_t_0)
+# training set for tree model
+train_imdb_b_t <- train_imdb_b[index_train_b_t,]
+```
+
+
 
 # Modelling
 
