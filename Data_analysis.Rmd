@@ -52,9 +52,11 @@ corrplot(cor(imdb[c(4,6,8,10:14,27,28)]),method = "number",type = "upper")
 
 ## Plot keyword & Film categorization
 
-We are interested in the distribution of the top 20 plot keywords. Figure \ref{fig:kw} shows that The most frequently seen plot keyword is wedding, which is repeated 12 times. This was followed by sex, terrorist, and writer, which are repeated 8 times each.
+We are interested in the distribution of the top 20 plot keywords. Figure \ref{fig:kwge} shows that The most frequently seen plot keyword is wedding, which is repeated 12 times. This was followed by sex, terrorist, and writer, which are repeated 8 times each.
 
-```{r plt_kw, echo=FALSE,fig.align='center',fig.cap="\\label{fig:kw} The distribution of the top 20 plot keywords",message=FALSE,warning=FALSE,fig.height=4}
+The figure \ref{fig:kwge} shows that the most repeated movie genre is drama, which is repeated 236 times. This was followed by Thriller, Romance and Comedy, which were repeated 131, 108 and 102 times, respectively.  
+
+```{r plt_kw, echo=FALSE,fig.align='center',fig.cap="\\label{fig:kwge} The distribution of the top 20 plot keywords and category",message=FALSE,warning=FALSE,fig.height=4}
 library(ggpubr)
 strings = strsplit(imdb$plot_keywords,split = "[|]")
 for(i in 1:1000){
@@ -79,7 +81,7 @@ p1 = ggplot() +
   geom_bar(data = keyword,aes(x =plot_keyword,y=frequency),stat = "identity")+
   scale_y_continuous(limits = c(0,12),breaks = seq(0,12,2))+  theme(axis.text.x = element_text(angle = 90, vjust=0.4)) + 
   xlab("Keyword") + 
-  ylab("Count")
+  ylab("Count")+coord_flip()
 
 strings2 = strsplit(imdb$genres,split = "[|]")
 d2 = data.frame(do.call(rbind,strings2))
@@ -98,35 +100,15 @@ p2 = ggplot() +
   geom_bar(data = genres,aes(x =genres,y=frequency),stat = "identity")+ 
   theme(axis.text.x = element_text(angle = 90, vjust=0.4)) + 
   xlab("Genres") + 
-  ylab("Count")
+  ylab("Count")+coord_flip()
 
 ggarrange(p1,p2,ncol = 2,nrow = 1)
 
 ```
 
-The figure \ref{fig:gen} shows that the most repeated movie genre is drama, which is repeated 236 times. This was followed by Thriller, Romance and Comedy, which were repeated 131, 108 and 102 times, respectively.  
 
-```{r genres,fig.cap="\\label{fig:gen} The distribution of the top 20 movie categories",  fig.align = "center",warning=FALSE,message=FALSE,fig.height=4}
-strings2 = strsplit(imdb$genres,split = "[|]")
-d2 = data.frame(do.call(rbind,strings2))
-colnames(d2) =c("genres1","genres2","genres3","genres4","genres5","genres6","genres7","genres8")
-genres <- data.frame()
-for(i in 1:8){
-  genres <- d2 %>%
-  group_by(d2[,i]) %>%
-  summarise(number=n()) %>%
-  arrange(desc(number))
-}
-colnames(genres) <-c("genres","frequency")
-genres <- genres[1:20,]
 
-ggplot() + 
-  geom_bar(data = genres,aes(x =genres,y=frequency),stat = "identity")+ 
-  theme(axis.text.x = element_text(angle = 90, vjust=0.4)) + 
-  xlab("Genres") + 
-  ylab("Count")
 
-```
 
 ## Imdb score
 
