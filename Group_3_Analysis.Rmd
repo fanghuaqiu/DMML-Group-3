@@ -2,58 +2,38 @@
 title: "Group_3_Analysis"
 author: "Group_3"
 date: "2023-03-10"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 # Aim of Analysis
+
+# Exploratory Analysis
 
 ## Data Wrangling
 ```{r setup, include=FALSE, message=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-
 #load library
 library(dplyr)
 library(tidyr)
 library(skimr)
 library(tidytext)
 library(stringr)
-library(e1071)
 ```
 
 ```{r Binary output label}
 imdb <- read.csv("https://raw.githubusercontent.com/fanghuaqiu/DMML-Group-3/main/group_3.csv",na.strings = "") %>%
   mutate(ROI = (gross-budget)/budget) %>% #define ROI
-  mutate(scs = ifelse(ROI>=1,1,0)) %>%
-  mutate(content_rating = str_replace(content_rating,"-1","_1")) %>% 
+  mutate(scs = ifelse(ROI>=1,1,0)) %>% #define binary labelled output
   mutate(title_year = as.factor(title_year),
          aspect_ratio = as.factor((aspect_ratio)),
          scs = as.factor(scs),
-         language = as.factor(language),
          content_rating = replace_na(content_rating, "Unknown"),
          country = str_replace(country," ","_"),
-         content_rating = str_replace(content_rating," ","_"),
-         country = as.factor(country),
-         content_rating = as.factor(content_rating),
-         color = as.factor(color))#define binary labelled output
+         content_rating = str_replace(content_rating," ","_"))%>%
+  mutate(content_rating = str_replace(content_rating,"-1","_1"))
 ```
 
-
-```{r turn categorical variable to dummy variable}
-#Turn genres into matrix
-imdb_genre <- imdb[,c("movie_title","genres")] %>%
-  mutate(has=1) %>%
-  unnest_tokens(genres_c, genres, to_lower=F) %>%
-  filter(genres_c != "Fi" & genres_c != "Film") %>%
-  group_by(movie_title) %>%
-  spread(genres_c,has,fill=0)
-
-#turn categorical variable into dummy variables
-dummies <- model.matrix(~color+language+country+title_year+aspect_ratio+content_rating,data=imdb)[,-1]
-
-#Combine datasets, need to adjust for standised data
-imdb_dummy <- cbind(imdb,dummies) %>%
-    left_join(imdb_genre, by = "movie_title")
-
-```
 
 
 ```{r Separate training, validation and test sets}
@@ -61,27 +41,40 @@ same_sample <- function(x,y){
   set.seed(84)
   return(sample(x,y))
 }
-
 index_test <- same_sample(1:nrow(imdb), round(0.25*nrow(imdb)))
 index_val <- same_sample((1:nrow(imdb))[-index_test], round(0.25*nrow(imdb)))
 index_train <- setdiff(1:nrow(imdb),c(index_test,index_val))
-
-test_imdb <- imdb_dummy[index_test,]
-valid_imdb <- imdb_dummy[index_val,]
-train_imdb <- imdb_dummy[index_train,]
+test_imdb <- imdb[index_test,]
+valid_imdb <- imdb[index_val,]
+train_imdb <- imdb[index_train,]
+# training set for tree model
+index_train_t <- same_sample(setdiff(1:nrow(imdb),c(index_test,index_val)), round(0.25*nrow(imdb)))
+train_imdb_t <- imdb[index_train_t,]
 ```
 
-# Exploratory Analysis
-From figure\ref{fig:cor}
-
-```{r cor, fig.cap="\\label{fig:cor}Correlation of facebook likes"}
-library(psych)
-pairs.panels(imdb[,c(4,6,8,10,14)])
+```{r balanced sets}
+same_sample <- function(x,y){
+  set.seed(84)
+  return(sample(x,y))
+}
+# balanced
+index_train_1 <- same_sample(which(imdb$scs == '1'), round(0.25*nrow(imdb)))
+index_train_0 <- same_sample(which(imdb$scs == '0'), round(0.25*nrow(imdb)))
+index_train_b <- c(index_train_1,index_train_0)
+index_val_b <- same_sample((1:nrow(imdb))[-index_train_b], round(0.25*nrow(imdb)))
+index_test_b <- setdiff(1:nrow(imdb),c(index_val_b,index_train_b))
+test_imdb_b <- imdb[index_test_b,]
+valid_imdb_b <- imdb[index_val_b,]
+train_imdb_b <- imdb[index_train_b,]
+dim(test_imdb_b)
+# training set for tree model
+index_train_t_1 <- same_sample(which(train_imdb_b$scs == '1'), round(0.25*nrow(train_imdb_b)))
+index_train_t_0 <- same_sample(which(train_imdb_b$scs == '0'), round(0.25*nrow(train_imdb_b)))
+index_train_b_t <- c(index_train_t_1,index_train_t_0)
+train_imdb_b_t <- train_imdb_b[index_train_b_t,]
 ```
 
-
-# Modelling
-
+# Modeling
 ## KNN
 
 ## LDA
@@ -89,31 +82,34 @@ pairs.panels(imdb[,c(4,6,8,10,14)])
 ## Tree
 
 ## SVM
-## Describe SVM
+### Definition of SVM
 SVM denotes support vector machines. The main idea of fitting a SVM is trying to find a hyperplane to separate the observations into two parts. The shortest vertical distance from a hyperplane to a point on both sides is called margin. To find an optimal SVM is to find a SVM with the biggest margin. 
 
-## Data wrangling for SVM modelling
-First, we have to delete inappropriate variables from the data set. We only keep 
-```{r datacleaning for SVM}
+### Data wrangling for SVM modelling
+After analyzing the dataset, we found that there are many different levels in the categorical variables in the dataset. After our dataset is divided into training set, validation set, and test set, the number of samples contained in each level of the categorical variables in each set is not large, so if the model is built by including categorical variables, the accuracy of the model will decrease, so we first remove the categorical variables in the dataset. At the same time, because there may be an inclusion relationship between some variables, such as the number of Facebook likes of the movie, only some important numeric variables are retained, and the reserved numeric variables are shown in table \ref{tab:datasetsvm}.
+
+```{r datacleaning for SVM,echo=FALSE, message=FALSE,warning=FALSE}
+library(e1071)
+library(knitr)
 ## Delete column with constant and we do not need
 datacleaning <- function(data,ncol_const){
   data = data[,-c(1,3,5:10,16:27,29,31:174)]
 }
-#original datacleaning data = data[,-c(31:152,1,3:10,16,17,19:20,25:27,29,168)], treat all the factor as dummies variable.
 
 train_imdb = datacleaning(train_imdb_b)
 valid_imdb = datacleaning(valid_imdb_b)
 test_imdb = datacleaning(test_imdb_b)
+
 ```
 
-```{r standardize}
+```{r standardize,echo=FALSE, message=FALSE,warning=FALSE}
 ## standardize
 standard_data <- function(data){
   numerical_vars <- sapply(data,is.numeric)
   var.mean <- apply(data[,numerical_vars],2,mean) 
   var.sd   <- apply(data[,numerical_vars],2,sd)
 
-# standardise training and test sets
+# standardize training and test sets
   data[,numerical_vars] <-t(apply(data[,numerical_vars], 1, function(x) (x-var.mean)/var.sd))
   return(data)
 }
@@ -123,16 +119,26 @@ test_imdb = standard_data(test_imdb)
 
 ```
 
-```{r SVM}
-# use for test, delete before final merging
-Model <- svm(scs~.,data = train_imdb, type="C-classification", kernel="radial")
-summary(Model)
-aa2=predict(Model,valid_imdb)
-table(valid_imdb$scs,aa2)
-length(valid_imdb$scs)
-length(aa2)
-sum(diag(table(valid_imdb$scs,aa2)))/length(aa2)
+```{r variable_table,echo=FALSE, message=FALSE,warning=FALSE}
+library(knitr)
+d = as.data.frame(colnames(train_imdb))
+c = c()
+for (i in 1:length(train_imdb)) {
+  c[i] = class(train_imdb[,i])
+}
+d1=cbind(d,as.data.frame(c))
 
+kable(d1,
+  caption = '\\label{tab:datasetsvm} The table of variables used in SVM and their data types.',
+  col.names=c("Varible", "Type")
+)
+```
+After selecting the variables that need to be used for modeling, we need to standardize the numerical variables and unify the dimensions of the numerical variables to meet the modeling requirements.
+
+### SVM Model
+We use radial, polynomial, and linear as kernels for the SVM model. At the same time, a value range is determined for the parameters that need to be used in the three models. The optimal prediction model is selected by comparing the prediction accuracy of the validate set.
+
+```{r SVM,echo=FALSE, message=FALSE,warning=FALSE}
 ## set parameters
 cost_range <- c(0.01,0.1,1:10,20)
 degree_range <- 2:5
@@ -141,7 +147,6 @@ gamma_range <- c(0.001,0.01,0.1,1,10,100)
 ## Polynomial
 SVM_poly <- tune.svm(scs~., data=train_imdb, type="C-classification",
                      kernel="polynomial", cost=cost_range, degree=degree_range)
-summary(SVM_poly)
 ## find the best parameter of poly svm
 degree_poly_opt <- SVM_poly$best.parameters[1]
 cost_poly_opt <- SVM_poly$best.parameters[2]
@@ -150,14 +155,12 @@ SVM_poly_final <- svm(scs~., train_imdb, type="C-classification",
                       kernel="polynomial", degree=degree_poly_opt, cost=cost_poly_opt)
 ## validate prediction of poly svm
 test_poly_pred <- predict(SVM_poly_final,valid_imdb)
-table(valid_imdb$scs,test_poly_pred)
-sum(diag(table(valid_imdb$scs,test_poly_pred)))/length(valid_imdb$scs)
+validation_accuracy_poly = sum(diag(table(valid_imdb$scs,test_poly_pred)))/length(valid_imdb$scs)
 
 
 ## Radial
 SVM_RBF <- tune.svm(scs~., data=train_imdb, type="C-classification", 
                     kernel="radial", cost=cost_range, gamma=gamma_range)
-summary(SVM_RBF)
 ## find the best parameter of radial svm
 gamma_radial_opt <- SVM_RBF$best.parameters[1]
 cost_radial_opt <- SVM_RBF$best.parameters[2]
@@ -166,13 +169,11 @@ SVM_radial_final <- svm(scs~., train_imdb, type="C-classification",
                         kernel="radial", gamma=gamma_radial_opt, cost=cost_radial_opt)
 ## validate prediction of radial svm
 test_radial_pred <- predict(SVM_radial_final,valid_imdb)
-table(valid_imdb$scs,test_radial_pred)
-sum(diag(table(valid_imdb$scs,test_radial_pred)))/length(valid_imdb$scs)
+validation_accuracy_radial = sum(diag(table(valid_imdb$scs,test_radial_pred)))/length(valid_imdb$scs)
 
 ## Linear
 SVM_linear <- tune.svm(scs~.,data = train_imdb,type="C-classification",
                        kernel="linear",cost = cost_range,degree = degree_range)
-summary(SVM_linear)
 ## find the best parameter of linear svm
 degree_linear_opt <- SVM_linear$best.parameters[1]
 cost_linear_opt <- SVM_linear$best.parameters[2]
@@ -181,50 +182,45 @@ SVM_linear_final <- svm(scs~., train_imdb, type = "C-classification",
                         kernel = "linear",cost = cost_linear_opt, degree = degree_linear_opt)
 ## validate prediction of linear svm
 test_linear_pred <- predict(SVM_linear_final,valid_imdb)
-table(valid_imdb$scs,test_linear_pred)
-sum(diag(table(valid_imdb$scs,test_linear_pred)))/length(valid_imdb$scs)
+validation_accuracy_linear = sum(diag(table(valid_imdb$scs,test_linear_pred)))/length(valid_imdb$scs)
 
-## sigmoid
-SVM_sigmoid <- tune.svm(scs~., data=train_imdb, type="C-classification",
-                        kernel="sigmoid", cost=cost_range, gamma=gamma_range)
-summary(SVM_sigmoid)
-## find the best parameter of sigmoid svm
-gamma_sigmoid_opt <- SVM_sigmoid$best.parameters[1]
-cost_sigmoid_opt <- SVM_sigmoid$best.parameters[2]
-## best model of sigmoid svm
-SVM_sigmoid_final <- svm(scs~., train_imdb, type="C-classification",
-                         kernel="sigmoid", gamma=gamma_sigmoid_opt, cost=cost_sigmoid_opt)
-## validate prediction of sigmoid svm
-test_sigmoid_pred <- predict(SVM_sigmoid_final,valid_imdb)
-table(valid_imdb$scs,test_sigmoid_pred)
-sum(diag(table(valid_imdb$scs,test_sigmoid_pred)))/length(valid_imdb$scs)
+```
+We can see from the table \ref{tab:ac_r}, the model with a polynomial kernel has the highest validation accuracy. Therefore, we choose to use the model with a polynomial kernel as the final SVM model.
 
+```{r accuracy rate,echo=FALSE, message=FALSE,warning=FALSE}
+d2 = data.frame(validation_accuracy_linear,validation_accuracy_poly,validation_accuracy_radial)
 
+kable(d2,
+  caption = '\\label{tab:ac_r} The table of the validation accuracy of the SVM model.',
+  col.names=c("Linear", "Polynomial","radial"))
+```
 
+```{r test rate,echo=FALSE, message=FALSE,warning=FALSE}
 #radial preform better, try to use radial SVM to predict
 SVM_best1 = SVM_radial_final
 predict_final1 = predict(SVM_best1,test_imdb)
-table(test_imdb$scs,predict_final1)
-sum(diag(table(test_imdb$scs,predict_final1)))/length(test_imdb$scs)
+test_accuracy_final = sum(diag(table(test_imdb$scs,predict_final1)))/length(test_imdb$scs)
 
 SVM_best2 = SVM_linear_final
 predict_final2 = predict(SVM_best2,test_imdb)
-table(test_imdb$scs,predict_final2)
-sum(diag(table(test_imdb$scs,predict_final2)))/length(test_imdb$scs)
+test_accuracy_linear = sum(diag(table(test_imdb$scs,predict_final2)))/length(test_imdb$scs)
 
 
 SVM_best3 = SVM_poly_final
 predict_final3 = predict(SVM_best3,test_imdb)
-table(test_imdb$scs,predict_final3)
-sum(diag(table(test_imdb$scs,predict_final3)))/length(test_imdb$scs)
-
-
+test_accuracy_poly = sum(diag(table(test_imdb$scs,predict_final3)))/length(test_imdb$scs)
 ```
 
-##Neural Network
 
-#Conclusion
+## Neural Network
 
-```
+
+
+# Conclusion
+
+In the support vector machine part, an SVM model using different parameters and kernels is established to compare and find the optimal SVM model. By comparing the validation accuracy of the validation set of SVM models of different kernels, it is found that the highest prediction accuracy can be obtained by using polynomial kernels with a degree of 3, a cost of 20, and a gamma of 0.125. We predict the test set with the following accuracy:0.744.
+
+
+
 
 
