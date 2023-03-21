@@ -34,25 +34,6 @@ imdb <- read.csv("https://raw.githubusercontent.com/fanghuaqiu/DMML-Group-3/main
 ```
 
 
-```{r turn categorical variable to dummy variable}
-#Turn genres into matrix
-imdb_genre <- imdb[,c("movie_title","genres")] %>%
-  mutate(has=1) %>%
-  unnest_tokens(genres_c, genres, to_lower=F) %>%
-  filter(genres_c != "Fi" & genres_c != "Film") %>%
-  group_by(movie_title) %>%
-  spread(genres_c,has,fill=0)
-
-#turn categorical variable into dummy variables
-dummies <- model.matrix(~color+language+country+title_year+aspect_ratio+content_rating,data=imdb)[,-1]
-
-#Combine datasets, need to adjust for standised data
-imdb_dummy <- cbind(imdb,dummies) %>%
-    left_join(imdb_genre, by = "movie_title")
-
-skim(imdb_dummy)
-```
-
 
 ```{r Separate training, validation and test sets}
 same_sample <- function(x,y){
@@ -64,13 +45,13 @@ index_test <- same_sample(1:nrow(imdb), round(0.25*nrow(imdb)))
 index_val <- same_sample((1:nrow(imdb))[-index_test], round(0.25*nrow(imdb)))
 index_train <- setdiff(1:nrow(imdb),c(index_test,index_val))
 
-test_imdb <- imdb_dummy[index_test,]
-valid_imdb <- imdb_dummy[index_val,]
-train_imdb <- imdb_dummy[index_train,]
+test_imdb <- imdb[index_test,]
+valid_imdb <- imdb[index_val,]
+train_imdb <- imdb[index_train,]
 # training set for tree model
 index_train_t <- same_sample(setdiff(1:nrow(imdb),c(index_test,index_val)), round(0.25*nrow(imdb)))
 
-train_imdb_t <- imdb_dummy[index_train_t,]
+train_imdb_t <- imdb[index_train_t,]
 ```
 
 ```{r balanced sets}
@@ -86,9 +67,9 @@ index_train_b <- c(index_train_1,index_train_0)
 index_val_b <- same_sample((1:nrow(imdb))[-index_train_b], round(0.25*nrow(imdb)))
 index_test_b <- setdiff(1:nrow(imdb),c(index_val_b,index_train_b))
 
-test_imdb_b <- imdb_dummy[index_test_b,]
-valid_imdb_b <- imdb_dummy[index_val_b,]
-train_imdb_b <- imdb_dummy[index_train_b,]
+test_imdb_b <- imdb[index_test_b,]
+valid_imdb_b <- imdb[index_val_b,]
+train_imdb_b <- imdb[index_train_b,]
 
 dim(test_imdb_b)
 # training set for tree model
