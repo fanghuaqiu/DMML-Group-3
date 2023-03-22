@@ -5,61 +5,89 @@ date: "2023-03-19"
 output: pdf_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
-
+## Data Wrangling
+```{r setup, include=FALSE, message=FALSE,echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
 #load library
 library(dplyr)
 library(tidyr)
 library(skimr)
 library(tidytext)
 library(stringr)
-library(e1071)
-library(ggplot2)
 ```
-
 
 ```{r Binary output label,echo=FALSE}
 imdb <- read.csv("https://raw.githubusercontent.com/fanghuaqiu/DMML-Group-3/main/group_3.csv",na.strings = "") %>%
   mutate(ROI = (gross-budget)/budget) %>% #define ROI
-  mutate(scs = ifelse(ROI>=1,1,0)) %>%
-  mutate(content_rating = str_replace(content_rating,"-1","_1")) %>% 
+  mutate(scs = ifelse(ROI>=0,1,0)) %>% #define binary labelled output
   mutate(title_year = as.factor(title_year),
          aspect_ratio = as.factor((aspect_ratio)),
          scs = as.factor(scs),
-         language = as.factor(language),
          content_rating = replace_na(content_rating, "Unknown"),
          country = str_replace(country," ","_"),
-         content_rating = str_replace(content_rating," ","_"),
-         country = as.factor(country),
-         content_rating = as.factor(content_rating),
-         color = as.factor(color))#define binary labelled output
+         content_rating = str_replace(content_rating," ","_"))%>%
+  mutate(content_rating = str_replace(content_rating,"-1","_1"))
+```
+
+```{r Separate training, validation and test sets,echo=FALSE}
+same_sample <- function(x,y){
+  set.seed(84)
+  return(sample(x,y))
+}
+index_test <- same_sample(1:nrow(imdb), round(0.25*nrow(imdb)))
+index_val <- same_sample((1:nrow(imdb))[-index_test], round(0.25*nrow(imdb)))
+index_train <- setdiff(1:nrow(imdb),c(index_test,index_val))
+test_imdb <- imdb[index_test,]
+valid_imdb <- imdb[index_val,]
+train_imdb <- imdb[index_train,]
+# training set for tree model
+index_train_t <- same_sample(setdiff(1:nrow(imdb),c(index_test,index_val)), round(0.25*nrow(imdb)))
+train_imdb_t <- imdb[index_train_t,]
+```
+
+```{r balanced sets,echo=FALSE}
+same_sample <- function(x,y){
+  set.seed(84)
+  return(sample(x,y))
+}
+# balanced
+index_train_1 <- same_sample(which(imdb$scs == '1'), round(0.25*nrow(imdb)))
+index_train_0 <- same_sample(which(imdb$scs == '0'), round(0.25*nrow(imdb)))
+index_train_b <- c(index_train_1,index_train_0)
+index_val_b <- same_sample((1:nrow(imdb))[-index_train_b], round(0.25*nrow(imdb)))
+index_test_b <- setdiff(1:nrow(imdb),c(index_val_b,index_train_b))
+test_imdb_b <- imdb[index_test_b,]
+valid_imdb_b <- imdb[index_val_b,]
+train_imdb_b <- imdb[index_train_b,]
+dim(test_imdb_b)
+# training set for tree model
+index_train_t_1 <- same_sample(which(train_imdb_b$scs == '1'), round(0.25*nrow(train_imdb_b)))
+index_train_t_0 <- same_sample(which(train_imdb_b$scs == '0'), round(0.25*nrow(train_imdb_b)))
+index_train_b_t <- c(index_train_t_1,index_train_t_0)
+train_imdb_b_t <- train_imdb_b[index_train_b_t,]
 ```
 
 # Exploratory data
 
 ## Correaltion
-Figure \ref{fig:cor} shows that there are strong correlations between cast total facebook likes and the actors' facebook likes. Because cast total Facebook likes, it contains Facebook likes of actors 1, 2, and 3. When the Facebook likes of actors 1, 2, and 3 increase, so do the cast total Facebook likes. Principal component analysis can be used to eliminate the multicollinearity of the data, or select one of the two data for analysis.
+Figure \ref{fig:cor} shows that there are strong correlations between cast total facebook likes and the actors' facebook likes. Because cast total Facebook likes, it contains Facebook likes of actors 1, 2, and 3. When the Facebook likes of actors 1, 2, and 3 increase, so do the cast total Facebook likes. Principal component analysis can be used to eliminate the multicollinearity of the data, or select one of the two data for analysis. We can also see from the figure \ref{fig:cor} that the correlation coefficient between the num_voted_users and the num_user_for_reviews is 0.79, while the correlation coefficient between the num_voted_users and the num_critic_for_reviews reaches 0.6, indicating that there is also some multicollinearity between the num_voted_users and other variables. This question may also cause some problems for our analysis.
 
-```{r correlation, echo=FALSE,fig.height=10,fig.width=10, fig.cap="\\label{fig:cor} Correlation of the facebook likes",fig.align='center',warning=FALSE,message=FALSE}
-library(psych)
-library(GGally)
+```{r correlation, echo=FALSE,fig.height=8,fig.width=8, fig.cap="\\label{fig:cor} Correlation of the facebook likes",fig.align='center',warning=FALSE,message=FALSE}
 library(corrplot)
-pairs.panels(imdb[c(4,6,8,10:14,27,28)])
-ggpairs(imdb[c(4,6,8,10:14,27,28,30)],aes(color=scs))
-corrplot(cor(imdb[c(4,6,8,10:14,27,28)]),method = "number",type = "upper")
+corrplot(cor(train_imdb[c(4,6,8,10:14,27,28)]),method = "number",type = "upper")
 ```
 
+
 ## Plot keyword & Film categorization
+We are interested in the distribution of the top 20 plot keywords. Figure \ref{fig:kwge} shows that The most frequently seen plot keyword is murder, which is repeated 6 times. This was followed by sequel, student, wedding, and terrorist, which are repeated 5 times each.
 
-We are interested in the distribution of the top 20 plot keywords. Figure \ref{fig:kwge} shows that The most frequently seen plot keyword is wedding, which is repeated 12 times. This was followed by sex, terrorist, and writer, which are repeated 8 times each.
+The figure \ref{fig:kwge} shows that the most repeated movie genre is drama, which is repeated 109 times. This was followed by Thriller, Romance and Comedy, which were repeated 66, 51 and 49 times, respectively.  
 
-The figure \ref{fig:kwge} shows that the most repeated movie genre is drama, which is repeated 236 times. This was followed by Thriller, Romance and Comedy, which were repeated 131, 108 and 102 times, respectively.  
-
-```{r plt_kw, echo=FALSE,fig.align='center',fig.cap="\\label{fig:kwge} The distribution of the top 20 plot keywords and category",message=FALSE,warning=FALSE,fig.height=4}
+```{r plt_kw, echo=FALSE,fig.align='center',fig.cap="\\label{fig:kwge} The distribution of the top 20 plot keywords and category",message=FALSE,warning=FALSE,fig.width=10}
 library(ggpubr)
-strings = strsplit(imdb$plot_keywords,split = "[|]")
-for(i in 1:1000){
+## plot_keyword
+strings = strsplit(train_imdb$plot_keywords,split = "[|]") ##use strsplit to split the keyword
+for(i in 1:length(strings)){
   if(identical(strings[[i]],character(0))){
   strings[[i]]="NA"
 }
@@ -77,13 +105,15 @@ colnames(keyword) <-c("plot_keyword","frequency")
 keyword <- keyword[1:20,]
 
 
-p1 = ggplot() + 
-  geom_bar(data = keyword,aes(x =plot_keyword,y=frequency),stat = "identity")+
-  scale_y_continuous(limits = c(0,12),breaks = seq(0,12,2))+  theme(axis.text.x = element_text(angle = 90, vjust=0.4)) + 
-  xlab("Keyword") + 
-  ylab("Count")+coord_flip()
+ggplot() + 
+  geom_bar(data = keyword,aes(x = reorder(plot_keyword,frequency),y=frequency),stat = "identity")+
+  scale_y_continuous(limits = c(0,12),breaks = seq(0,12,2))+ 
+  labs(x="Keyword",y="Count") +
+  coord_flip()+
+  theme(plot.title = element_text(size=7),axis.text.x = element_text(angle = 90, vjust=0.4))
 
-strings2 = strsplit(imdb$genres,split = "[|]")
+## genres
+strings2 = strsplit(train_imdb$genres,split = "[|]")    ##use strsplit to split the category
 d2 = data.frame(do.call(rbind,strings2))
 colnames(d2) =c("genres1","genres2","genres3","genres4","genres5","genres6","genres7","genres8")
 genres <- data.frame()
@@ -96,42 +126,38 @@ for(i in 1:8){
 colnames(genres) <-c("genres","frequency")
 genres <- genres[1:20,]
 
-p2 = ggplot() + 
-  geom_bar(data = genres,aes(x =genres,y=frequency),stat = "identity")+ 
-  theme(axis.text.x = element_text(angle = 90, vjust=0.4)) + 
-  xlab("Genres") + 
-  ylab("Count")+coord_flip()
-
-ggarrange(p1,p2,ncol = 2,nrow = 1)
+ggplot() + 
+  geom_bar(data = genres,aes(x =reorder(genres,frequency),y=frequency),stat = "identity")+ 
+  labs(x="Genres",y="Count" ) +
+  coord_flip()+
+  theme(plot.title = element_text(size=7),axis.text.x = element_text(angle = 90, vjust=0.4))
 
 ```
-
-
-
 
 
 ## Imdb score
-
 As we can see from the figure \ref{fig:imdb_score}, the average imdb score of successful movies is higher than that of unsuccessful movies. The average score of successful movies is about 6.8 to 6.9. Among the unsuccessful movies, there are some outliers, which have an imdb score below 4. We learn from the figure that successful movies have higher imdb scores overall than unsuccessful ones, but this difference is not very large. Some of the successful movies also have lower scores
 
-```{r imdb score, fig.align='center',fig.cap="\\label{fig:imdb_score} Boxplot of imdb scores of successful and unsuccessful movies",warning=FALSE,message=FALSE,fig.height=4}
-ggplot(imdb,aes(x = scs,y=imdb_score,fill=scs))+
+```{r imdb score, echo=FALSE, fig.align='center',fig.cap="\\label{fig:imdb_score} Boxplot of imdb scores of successful and unsuccessful movies",warning=FALSE,message=FALSE,fig.height=4}
+ggplot(train_imdb,aes(x = scs,y=imdb_score,fill=scs))+
   geom_boxplot()
 ```
+
+
 ## Content rating
 From figure \ref{fig:cont}, for movies rated PG, PG_13, and R, the percentage of unsuccessful movies was over 50 percent, while for the movies are not be rated, the percentage of successful films was greater.
 
-```{r content rating,fig.align='center',fig.cap="\\label{fig:cont} Proportion of successful vs. successful movies in content rating",message=FALSE,warning=FALSE,fig.height=4}
-ggplot(imdb,mapping=aes(x=content_rating,fill=scs))+geom_bar(position = "fill")+
+```{r content rating,echo=FALSE,fig.align='center',fig.cap="\\label{fig:cont} Proportion of successful vs. successful movies in content rating",message=FALSE,warning=FALSE,fig.height=4}
+ggplot(train_imdb,mapping=aes(x=content_rating,fill=scs))+geom_bar(position = "fill")+
   theme(axis.text.x = element_text(angle = 90, vjust=0.4)) +
   labs(x = "Content rating",y = "Proportion")
 ```
+
 ## Title year
 The figure \ref{fig:ty} shows that the proportion of successful vs unsuccessful movies in each title year. We can tell from the figure that the 
 
-
-```{r title year, fig.align='center',fig.cap="\\label{fig:ty} Proportion of successful vs unsuccessful movies in title year",message=FALSE,warning=FALSE,fig.height=4}
-ggplot(imdb,mapping=aes(x=title_year,fill=scs))+geom_bar(position = "fill")+
+```{r title year, echo=FALSE,fig.align='center',fig.cap="\\label{fig:ty} Proportion of successful vs unsuccessful movies in title year",message=FALSE,warning=FALSE,fig.height=4}
+ggplot(train_imdb,mapping=aes(x=title_year,fill=scs))+geom_bar(position = "fill")+
   theme(axis.text.x = element_text(angle = 90, vjust=0.4)) +
   labs(x = "Title year", y = "Proportion")
 ```
@@ -140,8 +166,8 @@ ggplot(imdb,mapping=aes(x=title_year,fill=scs))+geom_bar(position = "fill")+
 ## Language
 The figure \ref{fig:lan} shows that the proportion of successful vs unsuccessful movies in each type of language. We can tell from the figure that  movies whose languages are Cantonese and Indonesian are all successful movies in our dataset. The rest of the non-English movies are not a high percentage of successful movies, and the main languages of successful movies are English, French, Hindi, Spanish.
 
-```{r language, fig.align='center',fig.cap="\\label{fig:lan} Proportion of successful vs unsuccessful movies in language",message=FALSE,warning=FALSE ,fig.height=4}
-ggplot(imdb,mapping=aes(x=language,fill=scs))+geom_bar(position = "fill")+
+```{r language,echo=FALSE, fig.align='center',fig.cap="\\label{fig:lan} Proportion of successful vs unsuccessful movies in language",message=FALSE,warning=FALSE,fig.height=4}
+ggplot(train_imdb,mapping=aes(x=language,fill=scs))+geom_bar(position = "fill")+
   theme(axis.text.x = element_text(angle = 90, vjust=0.4)) +
   labs(x = "Language", y = "Proportion")
 ```
@@ -150,17 +176,19 @@ ggplot(imdb,mapping=aes(x=language,fill=scs))+geom_bar(position = "fill")+
 ## Aspect ratio
 We can tell from the figure \ref{fig:ar} that more than 60% of the movies with an aspect ratio of 1.3 are successful movies, and about 50% of the movies with aspect ratios of 1.37 and 1.66 are successful movies. Aspect ratios of 1.77, 2.4, and 2.55 are all unsuccessful movies, while movies with aspect ratios of 2 are all successful movies. It can be tentatively stated that the aspect ratio of a movie may be a factor that affects whether a movie is successful or not, because the aspect ratio may affect the audience's enjoyment.
 
-```{r aspect ratio, fig.align='center',fig.cap="\\label{fig:ar} Proportion of successful vs unsuccessful movies in aspect ratio",message=FALSE,warning=FALSE,fig.height=4}
-ggplot(imdb,mapping=aes(x=aspect_ratio,fill=scs))+geom_bar(position = "fill")+
+```{r aspect ratio, echo=FALSE,fig.align='center',fig.cap="\\label{fig:ar} Proportion of successful vs unsuccessful movies in aspect ratio",message=FALSE,warning=FALSE,fig.height=4}
+ggplot(train_imdb,mapping=aes(x=aspect_ratio,fill=scs))+geom_bar(position = "fill")+
   theme(axis.text.x = element_text(angle = 90, vjust=0.4)) +
   labs(x = "Aspect ratio", y = "Proportion")
 ```
 
+
 ## Color
 As we can see from the figure \ref{fig:color}, most of the movies are in color. The number of successful movies in color is about 270. However, the small number of black and white movies may lead to the conclusion that the analysis of this factor is not convincing. Therefore it may be possible to round off this factor depending on the model requirements.
 
-```{r color, fig.align='center',fig.cap="\\label{fig:color} Proportion of successful vs unsuccessful movies in different color",message=FALSE,warning=FALSE,fig.height=4}
-ggplot(imdb,mapping=aes(x=color,group=scs,fill=scs))+geom_bar()+
+```{r color,echo=FALSE, fig.align='center',fig.cap="\\label{fig:color} Proportion of successful vs unsuccessful movies in different color",message=FALSE,warning=FALSE,fig.height=4}
+ggplot(train_imdb,mapping=aes(x=color,group=scs,fill=scs))+geom_bar()+
   theme(axis.text.x = element_text(angle = 90, vjust=0.4)) +
   labs(x = "Color", y = "Count")
 ```
+
