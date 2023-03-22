@@ -24,14 +24,18 @@ library(stringr)
 ```{r Binary output label}
 imdb <- read.csv("https://raw.githubusercontent.com/fanghuaqiu/DMML-Group-3/main/group_3.csv",na.strings = "") %>%
   mutate(ROI = (gross-budget)/budget) %>% #define ROI
-  mutate(scs = ifelse(ROI>=1,1,0)) %>% #define binary labelled output
+  mutate(scs = ifelse(ROI>=0,1,0)) %>% #define binary labelled output
   mutate(title_year = as.factor(title_year),
          aspect_ratio = as.factor((aspect_ratio)),
+         color = as.factor((color)),
+         language = as.factor((language)),
          scs = as.factor(scs),
          content_rating = replace_na(content_rating, "Unknown"),
          country = str_replace(country," ","_"),
+         country = as.factor((country)),
          content_rating = str_replace(content_rating," ","_"))%>%
-  mutate(content_rating = str_replace(content_rating,"-1","_1"))
+  mutate(content_rating = str_replace(content_rating,"-1","_1"),
+         content_rating = as.factor((content_rating)))
 ```
 
 
@@ -50,28 +54,6 @@ train_imdb <- imdb[index_train,]
 # training set for tree model
 index_train_t <- same_sample(setdiff(1:nrow(imdb),c(index_test,index_val)), round(0.25*nrow(imdb)))
 train_imdb_t <- imdb[index_train_t,]
-```
-
-```{r balanced sets}
-same_sample <- function(x,y){
-  set.seed(84)
-  return(sample(x,y))
-}
-# balanced
-index_train_1 <- same_sample(which(imdb$scs == '1'), round(0.25*nrow(imdb)))
-index_train_0 <- same_sample(which(imdb$scs == '0'), round(0.25*nrow(imdb)))
-index_train_b <- c(index_train_1,index_train_0)
-index_val_b <- same_sample((1:nrow(imdb))[-index_train_b], round(0.25*nrow(imdb)))
-index_test_b <- setdiff(1:nrow(imdb),c(index_val_b,index_train_b))
-test_imdb_b <- imdb[index_test_b,]
-valid_imdb_b <- imdb[index_val_b,]
-train_imdb_b <- imdb[index_train_b,]
-dim(test_imdb_b)
-# training set for tree model
-index_train_t_1 <- same_sample(which(train_imdb_b$scs == '1'), round(0.25*nrow(train_imdb_b)))
-index_train_t_0 <- same_sample(which(train_imdb_b$scs == '0'), round(0.25*nrow(train_imdb_b)))
-index_train_b_t <- c(index_train_t_1,index_train_t_0)
-train_imdb_b_t <- train_imdb_b[index_train_b_t,]
 ```
 
 # Modeling
@@ -93,12 +75,12 @@ library(e1071)
 library(knitr)
 ## Delete column with constant and we do not need
 datacleaning <- function(data,ncol_const){
-  data = data[,-c(1,3,5:10,16:27,29,31:174)]
+  data = data[,-c(1,3,5:10,16:27,29)]
 }
 
-train_imdb = datacleaning(train_imdb_b)
-valid_imdb = datacleaning(valid_imdb_b)
-test_imdb = datacleaning(test_imdb_b)
+train_imdb = datacleaning(train_imdb)
+valid_imdb = datacleaning(valid_imdb)
+test_imdb = datacleaning(test_imdb)
 
 ```
 
@@ -133,11 +115,13 @@ kable(d1,
   col.names=c("Varible", "Type")
 )
 ```
+
 After selecting the variables that need to be used for modeling, we need to standardize the numerical variables and unify the dimensions of the numerical variables to meet the modeling requirements.
 
 ### SVM Model
 We use radial, polynomial, and linear as kernels for the SVM model. At the same time, a value range is determined for the parameters that need to be used in the three models. The optimal prediction model is selected by comparing the prediction accuracy of the validate set.
 
+After modeling, the gamma for the optimal model with kernel as radial is 0.1 and the cost is . The optimal model where kernel is linear has a degree of 0.1 and a cost of 0.1. The optimal model for kernel is poly, with a degree of 0.1 and a cost
 ```{r SVM,echo=FALSE, message=FALSE,warning=FALSE}
 ## set parameters
 cost_range <- c(0.01,0.1,1:10,20)
@@ -184,6 +168,7 @@ SVM_linear_final <- svm(scs~., train_imdb, type = "C-classification",
 test_linear_pred <- predict(SVM_linear_final,valid_imdb)
 validation_accuracy_linear = sum(diag(table(valid_imdb$scs,test_linear_pred)))/length(valid_imdb$scs)
 
+
 ```
 We can see from the table \ref{tab:ac_r}, the model with a polynomial kernel has the highest validation accuracy. Therefore, we choose to use the model with a polynomial kernel as the final SVM model.
 
@@ -199,7 +184,7 @@ kable(d2,
 #radial preform better, try to use radial SVM to predict
 SVM_best1 = SVM_radial_final
 predict_final1 = predict(SVM_best1,test_imdb)
-test_accuracy_final = sum(diag(table(test_imdb$scs,predict_final1)))/length(test_imdb$scs)
+test_accuracy_radial = sum(diag(table(test_imdb$scs,predict_final1)))/length(test_imdb$scs)
 
 SVM_best2 = SVM_linear_final
 predict_final2 = predict(SVM_best2,test_imdb)
@@ -218,7 +203,7 @@ test_accuracy_poly = sum(diag(table(test_imdb$scs,predict_final3)))/length(test_
 
 # Conclusion
 
-In the support vector machine part, an SVM model using different parameters and kernels is established to compare and find the optimal SVM model. By comparing the validation accuracy of the validation set of SVM models of different kernels, it is found that the highest prediction accuracy can be obtained by using polynomial kernels with a degree of 3, a cost of 20, and a gamma of 0.125. We predict the test set with the following accuracy:0.744.
+In the support vector machine part, an SVM model using different parameters and kernels is established to compare and find the optimal SVM model. By comparing the validation accuracy of the validation set of SVM models of different kernels, it is found that the highest prediction accuracy can be obtained by using radial kernels with a degree of 3, a cost of 4, and a gamma of 0.1. We predict the test set with the following accuracy:0.66.
 
 
 
