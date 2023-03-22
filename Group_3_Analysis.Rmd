@@ -23,7 +23,7 @@ library(stringr)
 ```{r Binary output label}
 imdb <- read.csv("https://raw.githubusercontent.com/fanghuaqiu/DMML-Group-3/main/group_3.csv",na.strings = "") %>%
   mutate(ROI = (gross-budget)/budget) %>% #define ROI
-  mutate(scs = ifelse(ROI>=1,1,0)) %>% #define binary labelled output
+  mutate(scs = ifelse(ROI>=0,1,0)) %>% #define binary labelled output
   mutate(title_year = as.factor(title_year),
          aspect_ratio = as.factor((aspect_ratio)),
          scs = as.factor(scs),
@@ -48,37 +48,9 @@ index_train <- setdiff(1:nrow(imdb),c(index_test,index_val))
 test_imdb <- imdb[index_test,]
 valid_imdb <- imdb[index_val,]
 train_imdb <- imdb[index_train,]
-# training set for tree model
-index_train_t <- same_sample(setdiff(1:nrow(imdb),c(index_test,index_val)), round(0.25*nrow(imdb)))
-
-train_imdb_t <- imdb[index_train_t,]
 ```
 
-```{r balanced sets}
-same_sample <- function(x,y){
-  set.seed(84)
-  return(sample(x,y))
-}
 
-# balanced
-index_train_1 <- same_sample(which(imdb$scs == '1'), round(0.25*nrow(imdb)))
-index_train_0 <- same_sample(which(imdb$scs == '0'), round(0.25*nrow(imdb)))
-index_train_b <- c(index_train_1,index_train_0)
-index_val_b <- same_sample((1:nrow(imdb))[-index_train_b], round(0.25*nrow(imdb)))
-index_test_b <- setdiff(1:nrow(imdb),c(index_val_b,index_train_b))
-
-test_imdb_b <- imdb[index_test_b,]
-valid_imdb_b <- imdb[index_val_b,]
-train_imdb_b <- imdb[index_train_b,]
-
-dim(test_imdb_b)
-# training set for tree model
-index_train_t_1 <- same_sample(which(train_imdb_b$scs == '1'), round(0.25*nrow(train_imdb_b)))
-index_train_t_0 <- same_sample(which(train_imdb_b$scs == '0'), round(0.25*nrow(train_imdb_b)))
-index_train_b_t <- c(index_train_t_1,index_train_t_0)
-
-train_imdb_b_t <- train_imdb_b[index_train_b_t,]
-```
 
 
 
